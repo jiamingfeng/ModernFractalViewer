@@ -1,0 +1,16 @@
+[package]
+name = "fractal-renderer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+fractal-core.workspace = true
+wgpu.workspace = true
+winit.workspace = true
+bytemuck.workspace = true
+glam.workspace = true
+log.workspace = true
+thiserror.workspace = true
+pollster.workspace = true
