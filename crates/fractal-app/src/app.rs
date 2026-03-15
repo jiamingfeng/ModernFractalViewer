@@ -234,18 +234,95 @@ impl App {
         // Render fractal
         self.pipeline.render(&mut encoder, &view);
         
-        // Submit fractal rendering commands
+        // Render egui UI on top of the fractal
+        if self.ui_state.show_panel {
+            // Run egui to get drawing primitives
+            let raw_input = self.egui_state.take_egui_input(&self.window);
+            let full_output = self.egui_ctx.run(raw_input, |ctx| {
+                FractalPanel::show(ctx, &mut self.ui_state);
+                
+                // Debug overlay
+                if self.ui_state.show_debug {
+                    egui::Window::new("Debug")
+                        .anchor(egui::Align2::RIGHT_TOP, [-10.0, 10.0])
+                        .show(ctx, |ui| {
+                            ui.label(format!("FPS: {:.1}", 1.0 / (self.last_frame.elapsed().as_secs_f32() + 0.001)));
+                            ui.label(format!("Camera: ({:.2}, {:.2}, {:.2})", 
+                                self.camera.position.x,
+                                self.camera.position.y, 
+                                self.camera.position.z));
+                            ui.label(format!("Zoom: {:.4}", self.camera.zoom));
+                        });
+                }
+            });
+            
+            self.egui_state.handle_platform_output(&self.window, full_output.platform_output);
+            
+            let clipped_primitives = self.egui_ctx.tessellate(
+                full_output.shapes,
+                self.egui_ctx.pixels_per_point(),
+            );
+            
+            // Upload egui textures
+            for (id, delta) in &full_output.textures_delta.set {
+                self.egui_renderer.update_texture(
+                    &self.render_ctx.device,
+                    &self.render_ctx.queue,
+                    *id,
+                    delta,
+                );
+            }
+            
+            let screen_descriptor = egui_wgpu::ScreenDescriptor {
+                size_in_pixels: [width, height],
+                pixels_per_point: self.window.scale_factor() as f32,
+            };
+            
+            self.egui_renderer.update_buffers(
+                &self.render_ctx.device,
+                &self.render_ctx.queue,
+                &mut encoder,
+                &clipped_primitives,
+                &screen_descriptor,
+            );
+            
+            // Render egui - use forget_lifetime() to convert render pass to 'static as required by egui-wgpu
+            {
+                let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Egui Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load, // Don't clear, overlay on top
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+                
+                // SAFETY: egui-wgpu requires 'static lifetime for the render pass.
+                // forget_lifetime() is the official way to convert a render pass to 'static.
+                // The render pass internally keeps all referenced resources alive.
+                let mut render_pass = render_pass.forget_lifetime();
+                
+                self.egui_renderer.render(
+                    &mut render_pass,
+                    &clipped_primitives,
+                    &screen_descriptor,
+                );
+            } // render_pass is dropped here before encoder.finish()
+            
+            // Free egui textures
+            for id in &full_output.textures_delta.free {
+                self.egui_renderer.free_texture(id);
+            }
+        }
+        
+        // Submit commands
         self.render_ctx.queue.submit(std::iter::once(encoder.finish()));
-        
-        // Render egui UI with separate encoder
-        // TODO: Fix egui-wgpu lifetime issue - the render() method requires 'static but
-        // encoder.begin_render_pass() returns a borrow. Need to investigate proper pattern.
-        // For now, egui is disabled to verify fractal rendering works.
-        // if self.ui_state.show_panel {
-        //     self.render_egui(&view, width, height)?;
-        // }
-        let _ = (width, height); // Suppress unused warning
-        
         output.present();
         
         // Sync UI camera state back
@@ -253,15 +330,4 @@ impl App {
         
         Ok(())
     }
-    
-    #[allow(dead_code)]
-    fn render_egui(&mut self, _view: &wgpu::TextureView, _width: u32, _height: u32) -> Result<(), wgpu::SurfaceError> {
-        // TODO: This function has a lifetime issue with egui-wgpu 0.31
-        // The Renderer::render() method requires 'static lifetime for render_pass
-        // but encoder.begin_render_pass() returns a borrow.
-        // Need to investigate the proper integration pattern for egui-wgpu.
-        // For now, return Ok to allow compilation.
-        Ok(())
-    }
-    
 }

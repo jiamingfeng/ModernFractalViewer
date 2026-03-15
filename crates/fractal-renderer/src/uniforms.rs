@@ -5,56 +5,78 @@ use fractal_core::{Camera, FractalParams};
 use fractal_core::sdf::{ColorConfig, LightingConfig, RayMarchConfig};
 
 /// Main uniforms sent to the GPU shader
+/// 
+/// IMPORTANT: This struct must match the WGSL Uniforms struct exactly.
+/// WGSL alignment rules:
+/// - vec4<f32>: 16 bytes, align 16
+/// - vec3<f32>: 12 bytes, BUT align 16 (takes 16 bytes in struct)
+/// - vec2<f32>: 8 bytes, align 8
+/// - f32/u32: 4 bytes, align 4
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct Uniforms {
-    // Camera
-    pub camera_pos: [f32; 4],      // xyz + padding
-    pub camera_target: [f32; 4],   // xyz + padding
-    pub camera_up: [f32; 4],       // xyz + padding
-    pub camera_fov: f32,
-    pub aspect_ratio: f32,
-    pub _pad1: [f32; 2],
-
-    // Resolution and time
-    pub resolution: [f32; 2],
-    pub time: f32,
-    pub _pad2: f32,
-
-    // Fractal parameters
-    pub fractal_type: u32,
-    pub power: f32,
-    pub iterations: u32,
-    pub bailout: f32,
+    // Camera (48 bytes at offset 0)
+    pub camera_pos: [f32; 4],      // 16 bytes, offset 0
+    pub camera_target: [f32; 4],   // 16 bytes, offset 16
+    pub camera_up: [f32; 4],       // 16 bytes, offset 32
     
-    pub scale: f32,
-    pub fold_limit: f32,
-    pub min_radius_sq: f32,
-    pub _pad3: f32,
+    // Camera params (16 bytes at offset 48)
+    pub camera_fov: f32,           // 4 bytes, offset 48
+    pub aspect_ratio: f32,         // 4 bytes, offset 52
+    pub _pad1: [f32; 2],           // 8 bytes, offset 56
+
+    // Resolution and time (16 bytes at offset 64)
+    pub resolution: [f32; 2],      // 8 bytes, offset 64
+    pub time: f32,                 // 4 bytes, offset 72
+    pub _pad2: f32,                // 4 bytes, offset 76
+
+    // Fractal parameters part 1 (16 bytes at offset 80)
+    pub fractal_type: u32,         // 4 bytes, offset 80
+    pub power: f32,                // 4 bytes, offset 84
+    pub iterations: u32,           // 4 bytes, offset 88
+    pub bailout: f32,              // 4 bytes, offset 92
     
-    pub julia_c: [f32; 4],
+    // Fractal parameters part 2 (16 bytes at offset 96)
+    pub scale: f32,                // 4 bytes, offset 96
+    pub fold_limit: f32,           // 4 bytes, offset 100
+    pub min_radius_sq: f32,        // 4 bytes, offset 104
+    pub _pad3: f32,                // 4 bytes, offset 108
+    
+    // Julia C (16 bytes at offset 112)
+    pub julia_c: [f32; 4],         // 16 bytes, offset 112
 
-    // Ray marching config
-    pub max_steps: u32,
-    pub epsilon: f32,
-    pub max_distance: f32,
-    pub ao_steps: u32,
-    pub ao_intensity: f32,
-    pub _pad4: [f32; 3],
+    // Ray marching config (32 bytes at offset 128)
+    // max_steps, epsilon, max_distance, ao_steps = 16 bytes
+    pub max_steps: u32,            // 4 bytes, offset 128
+    pub epsilon: f32,              // 4 bytes, offset 132
+    pub max_distance: f32,         // 4 bytes, offset 136
+    pub ao_steps: u32,             // 4 bytes, offset 140
+    
+    // ao_intensity + _pad4 (vec3 takes 16 bytes due to alignment)
+    pub ao_intensity: f32,         // 4 bytes, offset 144
+    pub _pad4: [f32; 3],           // 12 bytes, offset 148 (BUT vec3 in WGSL needs 16 byte alignment for NEXT field)
+    
+    // Lighting (32 bytes at offset 160)
+    pub light_dir: [f32; 4],       // 16 bytes, offset 160
+    pub ambient: f32,              // 4 bytes, offset 176
+    pub diffuse: f32,              // 4 bytes, offset 180
+    pub specular: f32,             // 4 bytes, offset 184
+    pub shininess: f32,            // 4 bytes, offset 188
 
-    // Lighting
-    pub light_dir: [f32; 4],       // xyz + padding
-    pub ambient: f32,
-    pub diffuse: f32,
-    pub specular: f32,
-    pub shininess: f32,
-
-    // Colors
-    pub base_color: [f32; 4],      // rgb + padding
-    pub secondary_color: [f32; 4], // rgb + padding
-    pub background_color: [f32; 4],// rgb + padding
-    pub color_mode: u32,
-    pub _pad5: [f32; 3],
+    // Colors (64 bytes at offset 192)
+    pub base_color: [f32; 4],      // 16 bytes, offset 192
+    pub secondary_color: [f32; 4], // 16 bytes, offset 208
+    pub background_color: [f32; 4],// 16 bytes, offset 224
+    
+    // Color mode + padding (16 bytes at offset 240)
+    pub color_mode: u32,           // 4 bytes, offset 240
+    pub _pad5: [f32; 3],           // 12 bytes, offset 244
+    
+    // Total: 256 bytes
+    // BUT WGSL vec3 alignment issue!
+    
+    // Extra padding to match WGSL struct size (288 bytes)
+    pub _extra_pad: [f32; 8],      // 32 bytes to reach 288
 }
 
 impl Default for Uniforms {
@@ -113,6 +135,8 @@ impl Uniforms {
             background_color: [color.background_color[0], color.background_color[1], color.background_color[2], 1.0],
             color_mode: color.color_mode,
             _pad5: [0.0; 3],
+            
+            _extra_pad: [0.0; 8],
         }
     }
 
@@ -174,3 +198,6 @@ impl Uniforms {
         self.time = time;
     }
 }
+
+// Compile-time size check
+const _: () = assert!(std::mem::size_of::<Uniforms>() == 288);
