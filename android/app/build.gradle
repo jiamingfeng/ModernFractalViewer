@@ -33,7 +33,12 @@ android {
 
 // Task to build Rust native libraries using cargo-ndk
 // Usage: ./gradlew buildRustDebug or ./gradlew buildRustRelease
+// These are skipped when SKIP_CARGO_NDK=true (e.g. in CI where libs are pre-built)
+def skipCargoNdk = System.env.SKIP_CARGO_NDK == 'true' ||
+    project.hasProperty('skipCargoNdk')
+
 task buildRustDebug(type: Exec) {
+    enabled = !skipCargoNdk
     workingDir '../../'
     def ndkDir = android.ndkDirectory?.absolutePath ?: System.env.ANDROID_NDK_ROOT ?: System.env.ANDROID_NDK_HOME
     environment 'ANDROID_NDK_ROOT', ndkDir
@@ -47,6 +52,7 @@ task buildRustDebug(type: Exec) {
 }
 
 task buildRustRelease(type: Exec) {
+    enabled = !skipCargoNdk
     workingDir '../../'
     def ndkDir = android.ndkDirectory?.absolutePath ?: System.env.ANDROID_NDK_ROOT ?: System.env.ANDROID_NDK_HOME
     environment 'ANDROID_NDK_ROOT', ndkDir
