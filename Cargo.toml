@@ -2,10 +2,11 @@
 resolver = "2"
 members = [
     "crates/fractal-core",
-    "crates/fractal-renderer", 
+    "crates/fractal-renderer",
     "crates/fractal-ui",
     "crates/fractal-app",
 ]
+default-members = ["crates/fractal-app"]
 
 [workspace.package]
 version = "0.1.0"
@@ -22,7 +23,7 @@ winit = "0.30"
 # UI
 egui = "0.31"
 egui-wgpu = "0.31"
-egui-winit = "0.31"
+egui-winit = { version = "0.31", default-features = false }
 
 # Math
 glam = { version = "0.29", features = ["bytemuck", "serde"] }
