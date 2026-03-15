@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Required for Vulkan rendering -->
+    <uses-feature android:name="android.hardware.vulkan.level" android:version="1" android:required="true" />
+    <uses-feature android:glEsVersion="0x00030001" android:required="false" />
+
+    <application
+        android:allowBackup="false"
+        android:hasCode="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="Fractal Viewer"
+        android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+
+        <!-- NativeActivity that loads our Rust shared library -->
+        <activity
+            android:name="android.app.NativeActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:exported="true">
+
+            <!-- Specifies the native shared library to load -->
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="fractal_app" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

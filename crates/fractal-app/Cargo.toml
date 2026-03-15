@@ -9,6 +9,11 @@ license.workspace = true
 name = "fractal-viewer"
 path = "src/main.rs"
 
+[lib]
+name = "fractal_app"
+crate-type = ["lib", "cdylib"]
+path = "src/lib.rs"
+
 [dependencies]
 fractal-core.workspace = true
 fractal-renderer.workspace = true

@@ -1,0 +1,70 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.fractal.viewer'
+    compileSdk 33
+
+    defaultConfig {
+        applicationId "com.fractal.viewer"
+        minSdk 30
+        targetSdk 33
+        versionCode 1
+        versionName "0.1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+        debug {
+            jniDebuggable true
+        }
+    }
+
+    // The native libraries are built by cargo-ndk and placed in jniLibs
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
+    }
+}
+
+// Task to build Rust native libraries using cargo-ndk
+// Usage: ./gradlew buildRustDebug or ./gradlew buildRustRelease
+task buildRustDebug(type: Exec) {
+    workingDir '../../'
+    def ndkDir = android.ndkDirectory?.absolutePath ?: System.env.ANDROID_NDK_ROOT ?: System.env.ANDROID_NDK_HOME
+    environment 'ANDROID_NDK_ROOT', ndkDir
+    commandLine 'cargo', 'ndk',
+        '-t', 'aarch64-linux-android',
+        '-t', 'armv7-linux-androideabi',
+        '-t', 'x86_64-linux-android',
+        '--platform', '30',
+        '-o', 'android/app/src/main/jniLibs',
+        'build', '-p', 'fractal-app', '--lib'
+}
+
+task buildRustRelease(type: Exec) {
+    workingDir '../../'
+    def ndkDir = android.ndkDirectory?.absolutePath ?: System.env.ANDROID_NDK_ROOT ?: System.env.ANDROID_NDK_HOME
+    environment 'ANDROID_NDK_ROOT', ndkDir
+    commandLine 'cargo', 'ndk',
+        '-t', 'aarch64-linux-android',
+        '-t', 'armv7-linux-androideabi',
+        '-t', 'x86_64-linux-android',
+        '--platform', '30',
+        '-o', 'android/app/src/main/jniLibs',
+        'build', '-p', 'fractal-app', '--lib', '--release'
+}
+
+// Wire Rust build into the Android build process
+tasks.whenTaskAdded { task ->
+    if (task.name == 'mergeDebugJniLibFolders') {
+        task.dependsOn buildRustDebug
+    }
+    if (task.name == 'mergeReleaseJniLibFolders') {
+        task.dependsOn buildRustRelease
+    }
+}

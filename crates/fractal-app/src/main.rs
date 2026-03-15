@@ -2,10 +2,7 @@
 //!
 //! A cross-platform 3D fractal viewer using ray marching.
 
-mod app;
-mod input;
-
-use app::App;
+use fractal_app::app::App;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
