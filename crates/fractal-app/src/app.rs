@@ -6,7 +6,7 @@ use std::time::Instant;
 use fractal_core::Camera;
 use fractal_renderer::{FractalPipeline, RenderContext};
 use fractal_ui::{FractalPanel, UiState};
-use winit::event::{ElementState, Event, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::Window;
@@ -74,60 +74,51 @@ impl App {
         })
     }
     
-    pub fn handle_event(&mut self, event: &Event<()>, elwt: &ActiveEventLoop) {
+    /// Handle window events using the new winit 0.30+ ApplicationHandler pattern
+    pub fn handle_window_event(&mut self, event: &WindowEvent, elwt: &ActiveEventLoop) {
+        // Let egui handle events first
+        let egui_response = self.egui_state.on_window_event(&self.window, event);
+
+        if egui_response.consumed {
+            return;
+        }
+
         match event {
-            Event::WindowEvent { event, .. } => {
-                // Let egui handle events first
-                let egui_response = self.egui_state.on_window_event(&self.window, event);
-                
-                if egui_response.consumed {
-                    return;
-                }
-                
-                match event {
-                    WindowEvent::CloseRequested => {
-                        log::info!("Close requested");
-                        elwt.exit();
-                    }
-                    
-                    WindowEvent::Resized(size) => {
-                        if size.width > 0 && size.height > 0 {
-                            self.render_ctx.resize(size.width, size.height);
-                            log::info!("Resized to {}x{}", size.width, size.height);
-                        }
-                    }
-                    
-                    WindowEvent::KeyboardInput { event, .. } => {
-                        self.handle_keyboard(event);
-                    }
-                    
-                    WindowEvent::MouseInput { state, button, .. } => {
-                        self.handle_mouse_button(*button, *state);
-                    }
-                    
-                    WindowEvent::CursorMoved { position, .. } => {
-                        self.handle_mouse_move(position.x as f32, position.y as f32);
-                    }
-                    
-                    WindowEvent::MouseWheel { delta, .. } => {
-                        self.handle_scroll(delta);
-                    }
-                    
-                    WindowEvent::RedrawRequested => {
-                        self.update();
-                        if let Err(e) = self.render() {
-                            log::error!("Render error: {}", e);
-                        }
-                    }
-                    
-                    _ => {}
+            WindowEvent::CloseRequested => {
+                log::info!("Close requested");
+                elwt.exit();
+            }
+
+            WindowEvent::Resized(size) => {
+                if size.width > 0 && size.height > 0 {
+                    self.render_ctx.resize(size.width, size.height);
+                    log::info!("Resized to {}x{}", size.width, size.height);
                 }
             }
-            
-            Event::AboutToWait => {
-                self.window.request_redraw();
+
+            WindowEvent::KeyboardInput { event, .. } => {
+                self.handle_keyboard(event);
             }
-            
+
+            WindowEvent::MouseInput { state, button, .. } => {
+                self.handle_mouse_button(*button, *state);
+            }
+
+            WindowEvent::CursorMoved { position, .. } => {
+                self.handle_mouse_move(position.x as f32, position.y as f32);
+            }
+
+            WindowEvent::MouseWheel { delta, .. } => {
+                self.handle_scroll(delta);
+            }
+
+            WindowEvent::RedrawRequested => {
+                self.update();
+                if let Err(e) = self.render() {
+                    log::error!("Render error: {}", e);
+                }
+            }
+
             _ => {}
         }
     }

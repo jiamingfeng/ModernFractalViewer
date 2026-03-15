@@ -208,12 +208,15 @@ fn sdf_menger(pos: vec3<f32>) -> vec2<f32> {
 fn sdf_julia(pos: vec3<f32>) -> vec2<f32> {
     var z = vec4<f32>(pos, 0.0);
     let c = u.julia_c;
-    var md2 = 1.0;
+    var dz = 1.0;
     var trap = 1e10;
     
     let iterations = u.iterations;
     
     for (var i = 0u; i < iterations; i = i + 1u) {
+        // Update running derivative: dz = 2 * |z| * dz
+        dz = 2.0 * length(z) * dz;
+        
         // Quaternion multiplication: z = z^2 + c
         let temp = z;
         z = vec4<f32>(
@@ -229,10 +232,11 @@ fn sdf_julia(pos: vec3<f32>) -> vec2<f32> {
         if (m2 > 256.0) {
             break;
         }
-        md2 = md2 * 4.0 * m2;
     }
     
-    let d = 0.25 * sqrt(dot(z, z) / md2) * log(dot(z, z));
+    // Distance estimation: d = 0.5 * |z| * log(|z|) / |dz|
+    let r = length(z);
+    let d = 0.5 * r * log(r) / max(dz, 1e-10);
     return vec2<f32>(d, trap);
 }
 

@@ -115,8 +115,9 @@ impl FractalParams {
             FractalType::Menger => Self::menger(4),
             FractalType::Julia3D => Self {
                 fractal_type: FractalType::Julia3D,
-                iterations: 12,
-                julia_c: [-0.2, 0.8, 0.0, 0.0],
+                iterations: 11,
+                bailout: 4.0,
+                julia_c: [-0.8, 0.156, 0.0, -0.1],
                 ..Default::default()
             },
             FractalType::Mandelbox => Self {
