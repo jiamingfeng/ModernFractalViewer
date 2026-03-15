@@ -10,7 +10,7 @@ use web_time::Instant;
 use fractal_core::Camera;
 use fractal_renderer::{FractalPipeline, RenderContext};
 use fractal_ui::{FractalPanel, UiState};
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, Touch, TouchPhase, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::Window;
@@ -116,6 +116,10 @@ impl App {
                 self.handle_scroll(delta);
             }
 
+            WindowEvent::Touch(touch) => {
+                self.handle_touch(touch);
+            }
+
             WindowEvent::RedrawRequested => {
                 self.update();
                 if let Err(e) = self.render() {
@@ -187,6 +191,85 @@ impl App {
         let zoom_factor = 1.0 - scroll * 0.1;
         self.camera.zoom_by(zoom_factor);
     }
+
+    fn handle_touch(&mut self, touch: &Touch) {
+        use crate::input::TouchPoint;
+
+        let id = touch.id;
+        let pos = TouchPoint {
+            x: touch.location.x as f32,
+            y: touch.location.y as f32,
+        };
+
+        match touch.phase {
+            TouchPhase::Started => {
+                self.input.touches.insert(id, pos);
+                // Reset pinch state when touch count changes
+                self.input.prev_pinch_distance = None;
+                self.input.prev_pinch_midpoint = None;
+            }
+
+            TouchPhase::Moved => {
+                let touch_count = self.input.touches.len();
+
+                if touch_count == 1 {
+                    // Single finger drag → orbit camera (negate dx for natural direction)
+                    if let Some(prev) = self.input.touches.get(&id) {
+                        let dx = pos.x - prev.x;
+                        let dy = pos.y - prev.y;
+                        self.camera.orbit(-dx * 0.005, -dy * 0.005);
+                    }
+                    self.input.touches.insert(id, pos);
+                } else if touch_count == 2 {
+                    // Update this finger's position
+                    self.input.touches.insert(id, pos);
+
+                    // Get both touch points
+                    let points: Vec<&TouchPoint> = self.input.touches.values().collect();
+                    if points.len() == 2 {
+                        let a = *points[0];
+                        let b = *points[1];
+
+                        let dist = InputState::pinch_distance(&a, &b);
+                        let mid = InputState::pinch_midpoint(&a, &b);
+
+                        // Pinch-to-zoom
+                        if let Some(prev_dist) = self.input.prev_pinch_distance {
+                            if prev_dist > 1.0 {
+                                let scale = prev_dist / dist;
+                                self.camera.zoom_by(scale);
+                            }
+                        }
+
+                        // Two-finger pan
+                        if let Some(prev_mid) = self.input.prev_pinch_midpoint {
+                            let dx = mid.0 - prev_mid.0;
+                            let dy = mid.1 - prev_mid.1;
+                            let pan_speed = self.camera.zoom * 0.002;
+                            self.camera.pan(glam::Vec3::new(
+                                -dx * pan_speed,
+                                dy * pan_speed,
+                                0.0,
+                            ));
+                        }
+
+                        self.input.prev_pinch_distance = Some(dist);
+                        self.input.prev_pinch_midpoint = Some(mid);
+                    }
+                } else {
+                    // 3+ fingers: just track positions
+                    self.input.touches.insert(id, pos);
+                }
+            }
+
+            TouchPhase::Ended | TouchPhase::Cancelled => {
+                self.input.touches.remove(&id);
+                // Reset pinch state when touch count changes
+                self.input.prev_pinch_distance = None;
+                self.input.prev_pinch_midpoint = None;
+            }
+        }
+    }
     
     fn update(&mut self) {
         let now = Instant::now();
@@ -198,8 +281,8 @@ impl App {
             self.camera.orbit(dt * self.ui_state.rotation_speed, 0.0);
         }
         
-        // Sync camera from UI state
-        self.camera.fov = self.ui_state.camera.fov;
+        // Push current camera state to UI for display/sliders
+        self.ui_state.camera = self.camera.clone();
     }
     
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -320,8 +403,9 @@ impl App {
         self.render_ctx.queue.submit(std::iter::once(encoder.finish()));
         output.present();
         
-        // Sync UI camera state back
-        self.ui_state.camera = self.camera.clone();
+        // Sync UI camera changes back to app camera
+        // This picks up reset, view buttons, slider changes from the egui UI
+        self.camera = self.ui_state.camera.clone();
         
         Ok(())
     }

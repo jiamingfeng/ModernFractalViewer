@@ -105,4 +105,4 @@ For deep zoom, we use double-single arithmetic - representing numbers as `hi + l
 
 ## License
 
-MIT OR Apache-2.0
+MIT License
