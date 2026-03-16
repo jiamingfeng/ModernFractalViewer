@@ -176,7 +176,7 @@ impl App {
         if self.input.right_mouse_down {
             // Pan camera
             let pan_speed = self.camera.zoom * 0.002;
-            self.camera.pan(glam::Vec3::new(-dx * pan_speed, dy * pan_speed, 0.0));
+            self.camera.pan(glam::Vec3::new(-dx * pan_speed, -dy * pan_speed, 0.0));
         }
         
         self.input.mouse_pos = (x, y);
@@ -248,7 +248,7 @@ impl App {
                             let pan_speed = self.camera.zoom * 0.002;
                             self.camera.pan(glam::Vec3::new(
                                 -dx * pan_speed,
-                                dy * pan_speed,
+                                -dy * pan_speed,
                                 0.0,
                             ));
                         }

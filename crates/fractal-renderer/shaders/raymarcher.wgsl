@@ -39,7 +39,9 @@ struct Uniforms {
     max_distance: f32,
     ao_steps: u32,
     ao_intensity: f32,
-    _pad4: vec3<f32>,
+    _pad4a: f32,
+    _pad4b: f32,
+    _pad4c: f32,
 
     // Lighting
     light_dir: vec4<f32>,
@@ -53,7 +55,9 @@ struct Uniforms {
     secondary_color: vec4<f32>,
     background_color: vec4<f32>,
     color_mode: u32,
-    _pad5: vec3<f32>,
+    _pad5a: f32,
+    _pad5b: f32,
+    _pad5c: f32,
 }
 
 @group(0) @binding(0)

@@ -5,11 +5,13 @@ use fractal_core::{Camera, FractalParams};
 use fractal_core::sdf::{ColorConfig, LightingConfig, RayMarchConfig};
 
 /// Main uniforms sent to the GPU shader
-/// 
+///
 /// IMPORTANT: This struct must match the WGSL Uniforms struct exactly.
+/// We avoid vec3<f32> in WGSL because it has 16-byte alignment in structs,
+/// which creates implicit padding gaps that are hard to match from Rust.
+/// Instead, we use individual f32 fields for padding.
 /// WGSL alignment rules:
 /// - vec4<f32>: 16 bytes, align 16
-/// - vec3<f32>: 12 bytes, BUT align 16 (takes 16 bytes in struct)
 /// - vec2<f32>: 8 bytes, align 8
 /// - f32/u32: 4 bytes, align 4
 #[repr(C)]
@@ -46,15 +48,14 @@ pub struct Uniforms {
     pub julia_c: [f32; 4],         // 16 bytes, offset 112
 
     // Ray marching config (32 bytes at offset 128)
-    // max_steps, epsilon, max_distance, ao_steps = 16 bytes
     pub max_steps: u32,            // 4 bytes, offset 128
     pub epsilon: f32,              // 4 bytes, offset 132
     pub max_distance: f32,         // 4 bytes, offset 136
     pub ao_steps: u32,             // 4 bytes, offset 140
     
-    // ao_intensity + _pad4 (vec3 takes 16 bytes due to alignment)
+    // ao_intensity + 3x f32 padding (16 bytes at offset 144)
     pub ao_intensity: f32,         // 4 bytes, offset 144
-    pub _pad4: [f32; 3],           // 12 bytes, offset 148 (BUT vec3 in WGSL needs 16 byte alignment for NEXT field)
+    pub _pad4: [f32; 3],           // 12 bytes, offset 148
     
     // Lighting (32 bytes at offset 160)
     pub light_dir: [f32; 4],       // 16 bytes, offset 160
@@ -63,7 +64,7 @@ pub struct Uniforms {
     pub specular: f32,             // 4 bytes, offset 184
     pub shininess: f32,            // 4 bytes, offset 188
 
-    // Colors (64 bytes at offset 192)
+    // Colors (48 bytes at offset 192)
     pub base_color: [f32; 4],      // 16 bytes, offset 192
     pub secondary_color: [f32; 4], // 16 bytes, offset 208
     pub background_color: [f32; 4],// 16 bytes, offset 224
@@ -73,10 +74,6 @@ pub struct Uniforms {
     pub _pad5: [f32; 3],           // 12 bytes, offset 244
     
     // Total: 256 bytes
-    // BUT WGSL vec3 alignment issue!
-    
-    // Extra padding to match WGSL struct size (288 bytes)
-    pub _extra_pad: [f32; 8],      // 32 bytes to reach 288
 }
 
 impl Default for Uniforms {
@@ -135,8 +132,6 @@ impl Uniforms {
             background_color: [color.background_color[0], color.background_color[1], color.background_color[2], 1.0],
             color_mode: color.color_mode,
             _pad5: [0.0; 3],
-            
-            _extra_pad: [0.0; 8],
         }
     }
 
@@ -200,4 +195,4 @@ impl Uniforms {
 }
 
 // Compile-time size check
-const _: () = assert!(std::mem::size_of::<Uniforms>() == 288);
+const _: () = assert!(std::mem::size_of::<Uniforms>() == 256);

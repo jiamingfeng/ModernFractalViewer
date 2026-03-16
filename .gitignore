@@ -28,3 +28,5 @@ android/app/src/main/jniLibs/
 android/build/
 android/.gradle/
 *.apk
+/.vscode/
+/.cargo/
