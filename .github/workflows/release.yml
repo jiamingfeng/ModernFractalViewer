@@ -93,22 +93,13 @@ jobs:
           files: fractal-viewer-v${{ inputs.version }}-windows-x64.zip
 
   # ─────────────────────────────────────────────
-  # macOS builds (ARM + x64)
+  # macOS build (ARM)
   # ─────────────────────────────────────────────
   build-macos:
     needs: create-release
     if: inputs.platform == 'all' || inputs.platform == 'macos'
-    strategy:
-      matrix:
-        include:
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            suffix: macos-arm64
-          - os: macos-13
-            target: x86_64-apple-darwin
-            suffix: macos-x64
-    runs-on: ${{ matrix.os }}
-    name: Build macOS (${{ matrix.suffix }})
+    runs-on: macos-latest
+    name: Build macOS (ARM)
 
     steps:
       - name: Checkout
@@ -117,28 +108,28 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: aarch64-apple-darwin
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          key: release-${{ matrix.suffix }}
+          key: release-macos-arm64
 
       - name: Build release
-        run: cargo build --release --target ${{ matrix.target }} -p fractal-app
+        run: cargo build --release --target aarch64-apple-darwin -p fractal-app
 
       - name: Package artifact
         run: |
           mkdir -p staging
-          cp target/${{ matrix.target }}/release/fractal-viewer staging/
+          cp target/aarch64-apple-darwin/release/fractal-viewer staging/
           chmod +x staging/fractal-viewer
-          cd staging && tar -czf "../fractal-viewer-v${{ inputs.version }}-${{ matrix.suffix }}.tar.gz" fractal-viewer
+          cd staging && tar -czf "../fractal-viewer-v${{ inputs.version }}-macos-arm64.tar.gz" fractal-viewer
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ inputs.version }}
-          files: fractal-viewer-v${{ inputs.version }}-${{ matrix.suffix }}.tar.gz
+          files: fractal-viewer-v${{ inputs.version }}-macos-arm64.tar.gz
 
   # ─────────────────────────────────────────────
   # Linux build
