@@ -1,11 +1,11 @@
 # Fractal Viewer
 
-[![Build WebGPU](https://github.com/github_username/ModernFractalViewer/actions/workflows/build-web.yml/badge.svg)](https://github.com/github_username/ModernFractalViewer/actions/workflows/build-web.yml)
-[![GitHub Pages](https://img.shields.io/badge/demo-live-brightgreen)](https://github_username.github.io/ModernFractalViewer/)
+[![Build WebGPU](https://github.com/jiamingfeng/ModernFractalViewer/actions/workflows/build-web.yml/badge.svg)](https://github.com/jiamingfeng/ModernFractalViewer/actions/workflows/build-web.yml)
+[![GitHub Pages](https://img.shields.io/badge/demo-live-brightgreen)](https://jiamingfeng.github.io/ModernFractalViewer/)
 
 A cross-platform 3D fractal viewer using ray marching, built with Rust.
 
-**[▶️ Try it Live in Your Browser](https://github_username.github.io/ModernFractalViewer/)** *(Requires WebGPU-enabled browser)*
+**[▶️ Try it Live in Your Browser](https://jiamingfeng.github.io/ModernFractalViewer/)** *(Requires WebGPU-enabled browser)*
 
 ![Fractal Viewer](docs/preview.png)
 
