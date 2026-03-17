@@ -1,6 +1,11 @@
 # Fractal Viewer
 
+[![Build WebGPU](https://github.com/github_username/ModernFractalViewer/actions/workflows/build-web.yml/badge.svg)](https://github.com/github_username/ModernFractalViewer/actions/workflows/build-web.yml)
+[![GitHub Pages](https://img.shields.io/badge/demo-live-brightgreen)](https://github_username.github.io/ModernFractalViewer/)
+
 A cross-platform 3D fractal viewer using ray marching, built with Rust.
+
+**[▶️ Try it Live in Your Browser](https://github_username.github.io/ModernFractalViewer/)** *(Requires WebGPU-enabled browser)*
 
 ![Fractal Viewer](docs/preview.png)
 
@@ -41,7 +46,26 @@ cargo run -p fractal-app
 cargo run -p fractal-app --release
 ```
 
-### WebAssembly
+### WebAssembly (WebGPU)
+
+The web build uses WebGPU for GPU-accelerated rendering. To run the live demo or build locally:
+
+**Browser Requirements:**
+- Chrome 113+ / Edge 113+ (WebGPU enabled by default)
+- Firefox Nightly (enable `dom.webgpu.enabled` in about:config)
+- Safari 18+ (macOS Sequoia / iOS 18)
+
+```bash
+# Install trunk for building
+cargo install trunk
+
+# Build and serve locally
+cd crates/fractal-app
+trunk serve --release --port 8080
+# Open http://localhost:8080
+```
+
+Alternative build with wasm-pack:
 
 ```bash
 # Install wasm-pack if not already installed
