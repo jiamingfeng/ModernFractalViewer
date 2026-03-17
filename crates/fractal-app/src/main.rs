@@ -9,6 +9,17 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
+/// Load the embedded application icon and return a winit `Icon`.
+///
+/// The PNG is baked into the binary at compile time via `include_bytes!`.
+#[cfg(not(target_arch = "wasm32"))]
+fn load_window_icon() -> Option<winit::window::Icon> {
+    let icon_bytes = include_bytes!("../assets/icon.png");
+    let img = image::load_from_memory(icon_bytes).ok()?.into_rgba8();
+    let (width, height) = img.dimensions();
+    winit::window::Icon::from_rgba(img.into_raw(), width, height).ok()
+}
+
 /// Application wrapper that handles window creation via ApplicationHandler (native only)
 #[cfg(not(target_arch = "wasm32"))]
 struct AppHandler {
@@ -91,9 +102,14 @@ fn main() {
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
     // Prepare window attributes (fullscreen-like)
-    let window_attrs = winit::window::WindowAttributes::default()
+    let mut window_attrs = winit::window::WindowAttributes::default()
         .with_title("Modern Fractal Viewer")
         .with_maximized(true);
+
+    // Set the window icon (taskbar / title bar icon)
+    if let Some(icon) = load_window_icon() {
+        window_attrs = window_attrs.with_window_icon(Some(icon));
+    }
 
     // Create and run the application handler
     let mut handler = AppHandler::new(window_attrs);

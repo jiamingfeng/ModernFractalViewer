@@ -31,6 +31,10 @@ env_logger.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 egui-winit = { workspace = true, features = ["clipboard", "links", "wayland", "x11"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(target_os = "windows")'.build-dependencies]
+winresource = "0.1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 egui-winit = { workspace = true, features = ["links"] }
