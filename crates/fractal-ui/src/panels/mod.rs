@@ -50,6 +50,7 @@ impl FractalPanel {
                     // Debug options
                     ui.collapsing("Debug", |ui| {
                         ui.checkbox(&mut state.show_debug, "Show debug info");
+                        ui.checkbox(&mut state.vsync, "VSync");
                         ui.checkbox(&mut state.auto_rotate, "Auto-rotate");
                         if state.auto_rotate {
                             ui.add(egui::Slider::new(&mut state.rotation_speed, 0.1..=2.0)

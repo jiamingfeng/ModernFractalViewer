@@ -30,6 +30,7 @@ pub struct App {
     input: InputState,
     start_time: Instant,
     last_frame: Instant,
+    vsync_prev: bool,
 }
 
 impl App {
@@ -75,6 +76,7 @@ impl App {
             input: InputState::default(),
             start_time: Instant::now(),
             last_frame: Instant::now(),
+            vsync_prev: true,
         })
     }
     
@@ -275,12 +277,23 @@ impl App {
         let now = Instant::now();
         let dt = (now - self.last_frame).as_secs_f32();
         self.last_frame = now;
-        
+
         // Auto-rotate
         if self.ui_state.auto_rotate {
             self.camera.orbit(dt * self.ui_state.rotation_speed, 0.0);
         }
-        
+
+        // Apply present mode change when vsync is toggled
+        if self.ui_state.vsync != self.vsync_prev {
+            self.vsync_prev = self.ui_state.vsync;
+            let mode = if self.ui_state.vsync {
+                wgpu::PresentMode::AutoVsync
+            } else {
+                wgpu::PresentMode::AutoNoVsync
+            };
+            self.render_ctx.set_present_mode(mode);
+        }
+
         // Push current camera state to UI for display/sliders
         self.ui_state.camera = self.camera.clone();
     }

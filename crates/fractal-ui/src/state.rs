@@ -24,6 +24,8 @@ pub struct UiState {
     pub auto_rotate: bool,
     /// Rotation speed
     pub rotation_speed: f32,
+    /// Enable vsync
+    pub vsync: bool,
 }
 
 impl Default for UiState {
@@ -38,6 +40,7 @@ impl Default for UiState {
             show_debug: false,
             auto_rotate: false,
             rotation_speed: 0.5,
+            vsync: true,
         }
     }
 }
