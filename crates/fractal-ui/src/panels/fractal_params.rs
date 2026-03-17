@@ -10,7 +10,7 @@ impl FractalParamsPanel {
     pub fn show(ui: &mut Ui, state: &mut UiState) -> bool {
         let mut changed = false;
 
-        ui.collapsing("Fractal Type", |ui| {
+        egui::CollapsingHeader::new("Fractal Type").default_open(true).show(ui, |ui| {
             let current_type = state.fractal_params.fractal_type;
 
             egui::ComboBox::from_label("")
@@ -34,7 +34,7 @@ impl FractalParamsPanel {
 
             ui.add_space(5.0);
 
-            ui.collapsing("Parameters", |ui| {
+            egui::CollapsingHeader::new("Parameters").default_open(true).show(ui, |ui| {
                 let params = &mut state.fractal_params;
 
                 match params.fractal_type {

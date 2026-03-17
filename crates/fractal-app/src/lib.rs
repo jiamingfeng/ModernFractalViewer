@@ -39,7 +39,7 @@ fn android_main(android_app: AndroidApp) {
                     event_loop
                         .create_window(
                             winit::window::WindowAttributes::default()
-                                .with_title("Fractal Viewer"),
+                                .with_title("Modern Fractal Viewer"),
                         )
                         .expect("Failed to create window"),
                 );

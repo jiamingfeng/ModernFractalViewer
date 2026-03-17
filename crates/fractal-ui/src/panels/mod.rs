@@ -15,60 +15,96 @@ use egui::Context;
 pub struct FractalPanel;
 
 impl FractalPanel {
-    /// Render the main control panel
+    /// Render the main control panel.
+    ///
+    /// When expanded, shows a floating, draggable, resizable panel anchored to the
+    /// left edge by default. The toggle button lives inside the panel header, to the
+    /// left of the title. When collapsed, a small `☰` button floats at the top-left
+    /// of the screen so the panel can be re-opened on any platform.
     pub fn show(ctx: &Context, state: &mut UiState) -> bool {
         let mut changed = false;
-        
-        egui::SidePanel::left("fractal_panel")
-            .default_width(280.0)
-            .resizable(true)
-            .show(ctx, |ui| {
-                ui.heading("🔷 Fractal Viewer");
-                ui.separator();
-                
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    // Fractal type and parameters
-                    changed |= FractalParamsPanel::show(ui, state);
-                    
-                    ui.add_space(10.0);
-                    
-                    // Rendering settings
-                    changed |= Self::show_rendering_settings(ui, state);
-                    
-                    ui.add_space(10.0);
-                    
-                    // Color settings
-                    changed |= ColorSettingsPanel::show(ui, state);
-                    
-                    ui.add_space(10.0);
-                    
-                    // Camera controls
-                    changed |= CameraControlsPanel::show(ui, state);
-                    
-                    ui.add_space(10.0);
-                    
-                    // Debug options
-                    ui.collapsing("Debug", |ui| {
-                        ui.checkbox(&mut state.show_debug, "Show debug info");
-                        ui.checkbox(&mut state.vsync, "VSync");
-                        ui.checkbox(&mut state.auto_rotate, "Auto-rotate");
-                        if state.auto_rotate {
-                            ui.add(egui::Slider::new(&mut state.rotation_speed, 0.1..=2.0)
-                                .text("Speed"));
+
+        if state.show_panel {
+            let screen_height = ctx.screen_rect().height();
+
+            egui::Window::new("fractal_panel")
+                // Custom header — standard title bar is disabled so we can embed
+                // the toggle button directly to the left of the heading text.
+                .title_bar(false)
+                // Allow the window to be dragged by non-interactive areas (e.g. the
+                // heading text row) and resized from its edges/corners.
+                .movable(true)
+                .resizable(true)
+                // Start flush to the left edge, spanning the full window height.
+                .default_pos([0.0, 0.0])
+                .default_width(280.0)
+                .default_height(screen_height)
+                .min_height(180.0)
+                .show(ctx, |ui| {
+                    // ── Header row ────────────────────────────────────────────
+                    // The close button sits at the far-left; the heading fills
+                    // the rest and acts as the drag handle (labels don't consume
+                    // pointer events, so the window drag logic receives them).
+                    ui.horizontal(|ui| {
+                        if ui.button("✕").on_hover_text("Hide panel").clicked() {
+                            state.show_panel = false;
                         }
+                        ui.heading("🔷 Modern Fractal Viewer");
+                    });
+                    ui.separator();
+
+                    // ── Scrollable content ────────────────────────────────────
+                    let available_height = ui.available_height();
+                    egui::ScrollArea::vertical()
+                        .max_height(available_height)
+                        .show(ui, |ui| {
+                        changed |= FractalParamsPanel::show(ui, state);
+
+                        ui.add_space(10.0);
+                        changed |= Self::show_rendering_settings(ui, state);
+
+                        ui.add_space(10.0);
+                        changed |= ColorSettingsPanel::show(ui, state);
+
+                        ui.add_space(10.0);
+                        changed |= CameraControlsPanel::show(ui, state);
+
+                        ui.add_space(10.0);
+                        ui.collapsing("Debug", |ui| {
+                            ui.checkbox(&mut state.show_debug, "Show debug info");
+                            ui.checkbox(&mut state.vsync, "VSync");
+                            ui.checkbox(&mut state.auto_rotate, "Auto-rotate");
+                            if state.auto_rotate {
+                                ui.add(
+                                    egui::Slider::new(&mut state.rotation_speed, 0.1..=2.0)
+                                        .text("Speed"),
+                                );
+                            }
+                        });
                     });
                 });
-            });
-        
+        } else {
+            // Collapsed state: a small floating button so the panel can be
+            // re-opened on all platforms (touch, mouse, keyboard).
+            egui::Area::new(egui::Id::new("panel_open_btn"))
+                .anchor(egui::Align2::LEFT_TOP, [4.0, 4.0])
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    if ui.button("☰").on_hover_text("Show panel").clicked() {
+                        state.show_panel = true;
+                    }
+                });
+        }
+
         changed
     }
 
     fn show_rendering_settings(ui: &mut egui::Ui, state: &mut UiState) -> bool {
         let mut changed = false;
-        
-        ui.collapsing("Rendering", |ui| {
+
+        egui::CollapsingHeader::new("Rendering").default_open(true).show(ui, |ui| {
             let config = &mut state.ray_march_config;
-            
+
             ui.horizontal(|ui| {
                 ui.label("Max Steps:");
                 let mut steps = config.max_steps as i32;
@@ -77,27 +113,32 @@ impl FractalPanel {
                     changed = true;
                 }
             });
-            
+
             ui.horizontal(|ui| {
                 ui.label("Epsilon:");
-                if ui.add(egui::DragValue::new(&mut config.epsilon)
-                    .speed(0.0001)
-                    .range(0.00001..=0.01)
-                    .fixed_decimals(5))
-                    .changed() {
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut config.epsilon)
+                            .speed(0.0001)
+                            .range(0.00001..=0.01)
+                            .fixed_decimals(5),
+                    )
+                    .changed()
+                {
                     changed = true;
                 }
             });
-            
+
             ui.horizontal(|ui| {
                 ui.label("Max Distance:");
-                if ui.add(egui::DragValue::new(&mut config.max_distance)
-                    .range(10.0..=1000.0))
-                    .changed() {
+                if ui
+                    .add(egui::DragValue::new(&mut config.max_distance).range(10.0..=1000.0))
+                    .changed()
+                {
                     changed = true;
                 }
             });
-            
+
             ui.horizontal(|ui| {
                 ui.label("AO Steps:");
                 let mut ao = config.ao_steps as i32;
@@ -106,16 +147,18 @@ impl FractalPanel {
                     changed = true;
                 }
             });
-            
+
             ui.horizontal(|ui| {
                 ui.label("AO Intensity:");
-                if ui.add(egui::Slider::new(&mut config.ao_intensity, 0.0..=1.0))
-                    .changed() {
+                if ui
+                    .add(egui::Slider::new(&mut config.ao_intensity, 0.0..=1.0))
+                    .changed()
+                {
                     changed = true;
                 }
             });
         });
-        
+
         changed
     }
 }

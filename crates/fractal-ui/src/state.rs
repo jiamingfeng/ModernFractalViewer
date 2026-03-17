@@ -36,7 +36,7 @@ impl Default for UiState {
             lighting_config: LightingConfig::default(),
             color_config: ColorConfig::default(),
             camera: Camera::default(),
-            show_panel: true,
+            show_panel: !cfg!(target_os = "android"),
             show_debug: false,
             auto_rotate: false,
             rotation_speed: 0.5,

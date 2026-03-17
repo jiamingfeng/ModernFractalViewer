@@ -9,7 +9,7 @@
         android:allowBackup="false"
         android:hasCode="false"
         android:icon="@mipmap/ic_launcher"
-        android:label="Fractal Viewer"
+        android:label="Modern Fractal Viewer"
         android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
 
         <!-- NativeActivity that loads our Rust shared library -->

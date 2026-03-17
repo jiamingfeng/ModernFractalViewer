@@ -9,7 +9,7 @@ impl CameraControlsPanel {
     pub fn show(ui: &mut Ui, state: &mut UiState) -> bool {
         let mut changed = false;
         
-        ui.collapsing("Camera", |ui| {
+        egui::CollapsingHeader::new("Camera").default_open(true).show(ui, |ui| {
             let camera = &mut state.camera;
             
             // FOV slider

@@ -84,7 +84,7 @@ fn main() {
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    log::info!("Starting Fractal Viewer");
+    log::info!("Starting Modern Fractal Viewer");
 
     // Create event loop
     let event_loop = EventLoop::new().expect("Failed to create event loop");
@@ -92,7 +92,7 @@ fn main() {
 
     // Prepare window attributes (fullscreen-like)
     let window_attrs = winit::window::WindowAttributes::default()
-        .with_title("Fractal Viewer")
+        .with_title("Modern Fractal Viewer")
         .with_maximized(true);
 
     // Create and run the application handler
@@ -197,7 +197,7 @@ fn main() {
             .unwrap_or((1280, 720));
 
         winit::window::WindowAttributes::default()
-            .with_title("Fractal Viewer")
+            .with_title("Modern Fractal Viewer")
             .with_inner_size(winit::dpi::LogicalSize::new(width, height))
             .with_append(true)
     };

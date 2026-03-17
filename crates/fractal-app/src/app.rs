@@ -325,22 +325,22 @@ impl App {
         // Render fractal
         self.pipeline.render(&mut encoder, &view);
         
-        // Render egui UI on top of the fractal
-        if self.ui_state.show_panel {
-            // Run egui to get drawing primitives
+        // Render egui UI on top of the fractal.
+        // Always run egui so the toggle button is visible even when the panel is collapsed.
+        {
             let raw_input = self.egui_state.take_egui_input(&self.window);
             let full_output = self.egui_ctx.run(raw_input, |ctx| {
                 FractalPanel::show(ctx, &mut self.ui_state);
-                
+
                 // Debug overlay
                 if self.ui_state.show_debug {
                     egui::Window::new("Debug")
                         .anchor(egui::Align2::RIGHT_TOP, [-10.0, 10.0])
                         .show(ctx, |ui| {
                             ui.label(format!("FPS: {:.1}", 1.0 / (self.last_frame.elapsed().as_secs_f32() + 0.001)));
-                            ui.label(format!("Camera: ({:.2}, {:.2}, {:.2})", 
+                            ui.label(format!("Camera: ({:.2}, {:.2}, {:.2})",
                                 self.camera.position.x,
-                                self.camera.position.y, 
+                                self.camera.position.y,
                                 self.camera.position.z));
                             ui.label(format!("Zoom: {:.4}", self.camera.zoom));
                         });
