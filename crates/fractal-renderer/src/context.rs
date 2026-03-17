@@ -101,6 +101,12 @@ impl RenderContext {
         })
     }
 
+    /// Change the present mode (e.g. to toggle vsync)
+    pub fn set_present_mode(&mut self, present_mode: wgpu::PresentMode) {
+        self.config.present_mode = present_mode;
+        self.surface.configure(&self.device, &self.config);
+    }
+
     /// Resize the surface
     pub fn resize(&mut self, width: u32, height: u32) {
         if width > 0 && height > 0 {
