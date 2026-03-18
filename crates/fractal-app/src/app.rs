@@ -31,6 +31,10 @@ pub struct App {
     start_time: Instant,
     last_frame: Instant,
     vsync_prev: bool,
+    /// Tracks whether the surface has been synced with the actual window size.
+    /// On WASM, the initial inner_size() can be stale when the canvas hasn't
+    /// been laid out yet, so we force a resize on the first RedrawRequested.
+    needs_initial_configure: bool,
 }
 
 impl App {
@@ -77,6 +81,7 @@ impl App {
             start_time: Instant::now(),
             last_frame: Instant::now(),
             vsync_prev: true,
+            needs_initial_configure: true,
         })
     }
     
@@ -123,6 +128,19 @@ impl App {
             }
 
             WindowEvent::RedrawRequested => {
+                // On the first redraw (especially WASM), sync the surface size
+                // with the actual window/canvas dimensions. The initial size
+                // from window.inner_size() during construction may be stale
+                // because the canvas hadn't been laid out in the DOM yet.
+                if self.needs_initial_configure {
+                    self.needs_initial_configure = false;
+                    let size = self.window.inner_size();
+                    if size.width > 0 && size.height > 0 {
+                        self.render_ctx.resize(size.width, size.height);
+                        log::info!("Initial surface configure: {}x{}", size.width, size.height);
+                    }
+                }
+
                 self.update();
                 if let Err(e) = self.render() {
                     log::error!("Render error: {}", e);
