@@ -17,6 +17,7 @@ on:
           - windows
           - macos
           - linux
+          - linux-arm64
           - web
           - android
 
@@ -132,13 +133,13 @@ jobs:
           files: fractal-viewer-v${{ inputs.version }}-macos-arm64.tar.gz
 
   # ─────────────────────────────────────────────
-  # Linux build
+  # Linux build (x86_64)
   # ─────────────────────────────────────────────
   build-linux:
     needs: create-release
     if: inputs.platform == 'all' || inputs.platform == 'linux'
     runs-on: ubuntu-latest
-    name: Build Linux
+    name: Build Linux (x64)
 
     steps:
       - name: Checkout
@@ -189,6 +190,65 @@ jobs:
         with:
           tag_name: v${{ inputs.version }}
           files: fractal-viewer-v${{ inputs.version }}-linux-x64.tar.gz
+
+  # ─────────────────────────────────────────────
+  # Linux ARM64 build (Raspberry Pi 4 / 5, etc.)
+  # ─────────────────────────────────────────────
+  build-linux-arm64:
+    needs: create-release
+    if: inputs.platform == 'all' || inputs.platform == 'linux-arm64'
+    runs-on: ubuntu-24.04-arm
+    name: Build Linux (ARM64)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-linux-arm64
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libvulkan-dev \
+            vulkan-tools \
+            libegl1-mesa-dev \
+            libgl1-mesa-dev \
+            libgles2-mesa-dev \
+            pkg-config \
+            libx11-dev \
+            libxi-dev \
+            libxrandr-dev \
+            libxcursor-dev
+
+      - name: Build release
+        run: cargo build --release --target aarch64-unknown-linux-gnu -p fractal-app
+
+      - name: Package artifact
+        run: |
+          mkdir -p staging
+          cp target/aarch64-unknown-linux-gnu/release/fractal-viewer staging/
+          chmod +x staging/fractal-viewer
+          cd staging && tar -czf "../fractal-viewer-v${{ inputs.version }}-linux-arm64.tar.gz" fractal-viewer
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          files: fractal-viewer-v${{ inputs.version }}-linux-arm64.tar.gz
 
   # ─────────────────────────────────────────────
   # WebGPU / WASM build
