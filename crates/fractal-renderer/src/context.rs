@@ -59,12 +59,15 @@ impl RenderContext {
 
         log::info!("Using adapter: {:?}", adapter.get_info());
 
-        // Request device with features needed for fractals
+        // Request device with limits that match the adapter's actual capabilities.
+        // Using adapter.limits() instead of Limits::default() ensures compatibility
+        // with lower-powered GPUs like the Raspberry Pi 4B's VideoCore VI (which
+        // e.g. only supports max_color_attachments = 4, not the desktop default of 8).
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("Fractal Device"),
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
+                required_limits: adapter.limits(),
                 memory_hints: wgpu::MemoryHints::Performance,
             }, None)
             .await?;
