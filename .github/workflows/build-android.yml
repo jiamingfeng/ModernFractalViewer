@@ -40,7 +40,7 @@ jobs:
         run: cargo install cargo-ndk
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+        uses: android-actions/setup-android@v3
 
       - name: Install Android NDK
         run: sdkmanager --install "ndk;25.1.8937393"
