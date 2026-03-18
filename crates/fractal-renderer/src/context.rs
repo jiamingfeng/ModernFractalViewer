@@ -72,12 +72,14 @@ impl RenderContext {
             }, None)
             .await?;
 
-        // Configure surface
+        // Configure surface — prefer non-sRGB formats (Rgba8Unorm / Bgra8Unorm)
+        // because egui expects a non-sRGB framebuffer and handles gamma internally.
+        // This avoids the egui_wgpu warning about sRGB-aware framebuffers.
         let surface_caps = surface.get_capabilities(&adapter);
         let format = surface_caps
             .formats
             .iter()
-            .find(|f| f.is_srgb())
+            .find(|f| !f.is_srgb())
             .copied()
             .unwrap_or(surface_caps.formats[0]);
 
