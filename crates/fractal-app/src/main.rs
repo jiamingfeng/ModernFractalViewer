@@ -152,19 +152,33 @@ fn main() {
                 if !*self.pending_init.borrow() {
                     *self.pending_init.borrow_mut() = true;
                     let app_ref = self.app.clone();
+                    let window_for_redraw = window.clone();
                     wasm_bindgen_futures::spawn_local(async move {
                         match App::new(window).await {
                             Ok(app) => {
                                 log::info!("Application initialized successfully (WASM)");
                                 *app_ref.borrow_mut() = Some(app);
-                                // Hide loading indicator
-                                if let Some(window) = web_sys::window() {
-                                    if let Some(document) = window.document() {
+
+                                // Sync surface size with the actual canvas/viewport dimensions
+                                // and trigger the first frame render. Without this, the canvas
+                                // stays blank until the user resizes the browser window.
+                                if let Some(web_window) = web_sys::window() {
+                                    let width = web_window.inner_width().ok().and_then(|v| v.as_f64()).unwrap_or(1280.0) as u32;
+                                    let height = web_window.inner_height().ok().and_then(|v| v.as_f64()).unwrap_or(720.0) as u32;
+                                    let _ = window_for_redraw.request_inner_size(
+                                        winit::dpi::LogicalSize::new(width, height),
+                                    );
+
+                                    // Hide loading indicator
+                                    if let Some(document) = web_window.document() {
                                         if let Some(loading) = document.get_element_by_id("loading") {
                                             let _ = loading.set_attribute("style", "display:none");
                                         }
                                     }
                                 }
+
+                                // Request the first redraw to kick-start rendering
+                                window_for_redraw.request_redraw();
                             }
                             Err(e) => {
                                 log::error!("Failed to create application: {}", e);
