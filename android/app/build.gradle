@@ -4,12 +4,13 @@ plugins {
 
 android {
     namespace 'com.fractal.viewer'
-    compileSdk 33
+    compileSdk 35
+    ndkVersion '25.1.8937393'
 
     defaultConfig {
         applicationId "com.fractal.viewer"
         minSdk 30
-        targetSdk 33
+        targetSdk 35
         versionCode 1
         versionName "0.1.0"
     }
@@ -27,6 +28,12 @@ android {
     sourceSets {
         main {
             jniLibs.srcDirs = ['src/main/jniLibs']
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
         }
     }
 }
