@@ -18,6 +18,10 @@ pub struct RayMarchConfig {
     pub ao_steps: u32,
     /// Ambient occlusion intensity
     pub ao_intensity: f32,
+    /// Epsilon for normal calculation (smaller = smoother normals, reduces banding)
+    pub normal_epsilon: f32,
+    /// Number of samples per pixel for super-sampling (1, 2, or 4)
+    pub sample_count: u32,
 }
 
 impl Default for RayMarchConfig {
@@ -28,6 +32,8 @@ impl Default for RayMarchConfig {
             max_distance: 100.0,
             ao_steps: 5,
             ao_intensity: 0.2,
+            normal_epsilon: 0.0001,
+            sample_count: 1,
         }
     }
 }

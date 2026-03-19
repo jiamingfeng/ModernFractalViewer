@@ -20,8 +20,9 @@ pub struct Camera {
     pub near: f32,
     /// Far clipping plane
     pub far: f32,
-    /// Zoom level (affects distance from target)
-    pub zoom: f32,
+    /// Distance from target (orbital radius). Lower = closer/more zoomed in.
+    #[serde(alias = "zoom")]
+    pub distance: f32,
     /// Rotation around Y axis (azimuth) in radians
     pub azimuth: f32,
     /// Rotation from XZ plane (elevation) in radians
@@ -37,7 +38,7 @@ impl Default for Camera {
             fov: 60.0_f32.to_radians(),
             near: 0.001,
             far: 100.0,
-            zoom: 3.0,
+            distance: 3.0,
             azimuth: 0.0,
             elevation: 0.0,
         }
@@ -52,9 +53,9 @@ impl Camera {
 
     /// Update camera position based on orbital parameters
     pub fn update_position(&mut self) {
-        let x = self.zoom * self.elevation.cos() * self.azimuth.sin();
-        let y = self.zoom * self.elevation.sin();
-        let z = self.zoom * self.elevation.cos() * self.azimuth.cos();
+        let x = self.distance * self.elevation.cos() * self.azimuth.sin();
+        let y = self.distance * self.elevation.sin();
+        let z = self.distance * self.elevation.cos() * self.azimuth.cos();
         self.position = self.target + Vec3::new(x, y, z);
     }
 
@@ -68,10 +69,16 @@ impl Camera {
         self.update_position();
     }
 
-    /// Zoom in/out by a factor
+    /// Zoom in/out by a factor (operates on orbital distance)
     pub fn zoom_by(&mut self, factor: f32) {
-        self.zoom = (self.zoom * factor).clamp(0.001, 100.0);
+        self.distance = (self.distance * factor).clamp(0.001, 100.0);
         self.update_position();
+    }
+
+    /// Compute an adaptive near clip distance that scales with camera distance.
+    /// Prevents the ray origin from starting inside the SDF surface when zoomed in.
+    pub fn adaptive_near_clip(&self) -> f32 {
+        (self.distance * 0.001).max(0.00001)
     }
 
     /// Pan the camera (move target)

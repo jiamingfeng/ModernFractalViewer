@@ -195,7 +195,7 @@ impl App {
         
         if self.input.right_mouse_down {
             // Pan camera
-            let pan_speed = self.camera.zoom * 0.002;
+            let pan_speed = self.camera.distance * 0.002;
             self.camera.pan(glam::Vec3::new(-dx * pan_speed, -dy * pan_speed, 0.0));
         }
         
@@ -265,7 +265,7 @@ impl App {
                         if let Some(prev_mid) = self.input.prev_pinch_midpoint {
                             let dx = mid.0 - prev_mid.0;
                             let dy = mid.1 - prev_mid.1;
-                            let pan_speed = self.camera.zoom * 0.002;
+                            let pan_speed = self.camera.distance * 0.002;
                             self.camera.pan(glam::Vec3::new(
                                 -dx * pan_speed,
                                 -dy * pan_speed,
@@ -361,7 +361,7 @@ impl App {
                                 self.camera.position.x,
                                 self.camera.position.y,
                                 self.camera.position.z));
-                            ui.label(format!("Zoom: {:.4}", self.camera.zoom));
+                            ui.label(format!("Zoom: {:.4}x", 1.0 / self.camera.distance));
                         });
                 }
             });

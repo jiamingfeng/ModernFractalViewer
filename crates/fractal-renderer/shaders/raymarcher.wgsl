@@ -74,8 +74,13 @@ struct Uniforms {
     dither_strength: f32,
     _pad6: vec2<f32>,
 
+    // Rendering extras
+    normal_epsilon: f32,
+    sample_count: u32,
+    near_clip: f32,
+    _pad7: f32,
+
     // Reserved
-    _reserved0: vec4<f32>,
     _reserved1: vec4<f32>,
     _reserved2: vec4<f32>,
     _reserved3: vec4<f32>,
@@ -409,7 +414,7 @@ fn ray_march(ro: vec3<f32>, rd: vec3<f32>) -> RayMarchResult {
     result.steps = 0u;
     result.trap = 0.0;
     
-    var t = 0.0;
+    var t = u.near_clip;
     let max_steps = u.max_steps;
     let epsilon = u.epsilon;
     let max_distance = u.max_distance;
@@ -444,7 +449,7 @@ fn ray_march(ro: vec3<f32>, rd: vec3<f32>) -> RayMarchResult {
 // ============================================================================
 
 fn calc_normal(pos: vec3<f32>) -> vec3<f32> {
-    let e = vec2<f32>(u.epsilon, 0.0);
+    let e = vec2<f32>(u.normal_epsilon, 0.0);
     return normalize(vec3<f32>(
         map(pos + e.xyy).x - map(pos - e.xyy).x,
         map(pos + e.yxy).x - map(pos - e.yxy).x,
@@ -619,15 +624,10 @@ fn get_ray_direction(uv: vec2<f32>) -> vec3<f32> {
 // FRAGMENT SHADER
 // ============================================================================
 
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let uv = in.uv;
-
-    // Camera setup
+// Render a single sample for a given UV coordinate
+fn render_sample(uv: vec2<f32>) -> vec3<f32> {
     let ro = u.camera_pos.xyz;
     let rd = get_ray_direction(uv);
-
-    // Ray march
     let result = ray_march(ro, rd);
 
     var col: vec3<f32>;
@@ -675,7 +675,32 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         col = pow(col, vec3<f32>(1.0 / 2.2));
     }
 
-    // Dithering — eliminates 8-bit banding on both background and surface
+    return col;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let pixel_size = 1.0 / u.resolution;
+    var col = vec3<f32>(0.0);
+
+    if (u.sample_count <= 1u) {
+        // Fast path: single sample, no overhead
+        col = render_sample(in.uv);
+    } else if (u.sample_count == 2u) {
+        // 2x: diagonal offsets
+        col += render_sample(in.uv + vec2<f32>(-0.25, -0.25) * pixel_size);
+        col += render_sample(in.uv + vec2<f32>( 0.25,  0.25) * pixel_size);
+        col *= 0.5;
+    } else {
+        // 4x: Rotated Grid Super-Sampling (RGSS)
+        col += render_sample(in.uv + vec2<f32>(-0.375, -0.125) * pixel_size);
+        col += render_sample(in.uv + vec2<f32>( 0.125, -0.375) * pixel_size);
+        col += render_sample(in.uv + vec2<f32>( 0.375,  0.125) * pixel_size);
+        col += render_sample(in.uv + vec2<f32>(-0.125,  0.375) * pixel_size);
+        col *= 0.25;
+    }
+
+    // Dithering — eliminates 8-bit banding (applied after sample averaging)
     let pixel = vec2<u32>(u32(in.position.x), u32(in.position.y));
     let dither = triangular_dither(pixel, u.frame_count) * u.dither_strength;
     col = col + vec3<f32>(dither / 255.0);

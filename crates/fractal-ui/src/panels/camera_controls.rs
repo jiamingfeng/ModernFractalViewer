@@ -24,12 +24,14 @@ impl CameraControlsPanel {
                 }
             });
             
-            // Zoom
+            // Zoom (derived: zoom = 1/distance, so higher = more magnified)
             ui.horizontal(|ui| {
                 ui.label("Zoom:");
-                if ui.add(egui::Slider::new(&mut camera.zoom, 0.1..=20.0)
+                let mut zoom_value = 1.0 / camera.distance;
+                if ui.add(egui::Slider::new(&mut zoom_value, 0.05..=1000.0)
                     .logarithmic(true))
                     .changed() {
+                    camera.distance = (1.0 / zoom_value).clamp(0.001, 20.0);
                     camera.update_position();
                     changed = true;
                 }

@@ -157,6 +157,44 @@ impl FractalPanel {
                     changed = true;
                 }
             });
+
+            ui.horizontal(|ui| {
+                ui.label("Normal Epsilon:");
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut config.normal_epsilon)
+                            .speed(0.00001)
+                            .range(0.000001..=0.01)
+                            .fixed_decimals(6),
+                    )
+                    .changed()
+                {
+                    changed = true;
+                }
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Samples:");
+                egui::ComboBox::from_id_salt("sample_count")
+                    .selected_text(format!("{}x", config.sample_count))
+                    .show_ui(ui, |ui| {
+                        for &count in &[1u32, 2, 4] {
+                            if ui
+                                .selectable_value(
+                                    &mut config.sample_count,
+                                    count,
+                                    format!("{}x", count),
+                                )
+                                .clicked()
+                            {
+                                changed = true;
+                            }
+                        }
+                    });
+            });
+            if config.sample_count > 1 {
+                ui.small("Higher values improve quality but reduce FPS.");
+            }
         });
 
         changed

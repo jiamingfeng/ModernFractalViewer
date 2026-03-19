@@ -90,8 +90,14 @@ pub struct Uniforms {
     pub dither_strength: f32,      // 4 bytes, offset 388
     pub _pad6: [f32; 2],           // 8 bytes, offset 392
 
-    // Reserved (112 bytes at offset 400)
-    pub _reserved: [f32; 28],      // 112 bytes, offset 400
+    // New fields (16 bytes at offset 400)
+    pub normal_epsilon: f32,       // 4 bytes, offset 400
+    pub sample_count: u32,         // 4 bytes, offset 404
+    pub near_clip: f32,            // 4 bytes, offset 408
+    pub _pad7: f32,                // 4 bytes, offset 412
+
+    // Reserved (96 bytes at offset 416)
+    pub _reserved: [f32; 24],      // 96 bytes, offset 416
 
     // Total: 512 bytes
 }
@@ -168,7 +174,12 @@ impl Uniforms {
             dither_strength: 0.0,
             _pad6: [0.0; 2],
 
-            _reserved: [0.0; 28],
+            normal_epsilon: ray_march.normal_epsilon,
+            sample_count: ray_march.sample_count,
+            near_clip: camera.near,
+            _pad7: 0.0,
+
+            _reserved: [0.0; 24],
         };
         u.update_color(&color);
         u
@@ -181,6 +192,7 @@ impl Uniforms {
         self.camera_up = [camera.up.x, camera.up.y, camera.up.z, 0.0];
         self.camera_fov = camera.fov;
         self.aspect_ratio = aspect_ratio;
+        self.near_clip = camera.adaptive_near_clip();
     }
 
     /// Update fractal parameters
@@ -202,6 +214,8 @@ impl Uniforms {
         self.max_distance = config.max_distance;
         self.ao_steps = config.ao_steps;
         self.ao_intensity = config.ao_intensity;
+        self.normal_epsilon = config.normal_epsilon;
+        self.sample_count = config.sample_count;
     }
 
     /// Update lighting config
