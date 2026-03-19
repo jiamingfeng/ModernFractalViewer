@@ -25,12 +25,12 @@ struct Uniforms {
     power: f32,
     iterations: u32,
     bailout: f32,
-    
+
     scale: f32,
     fold_limit: f32,
     min_radius_sq: f32,
     _pad3: f32,
-    
+
     julia_c: vec4<f32>,
 
     // Ray marching config
@@ -55,9 +55,33 @@ struct Uniforms {
     secondary_color: vec4<f32>,
     background_color: vec4<f32>,
     color_mode: u32,
-    _pad5a: f32,
-    _pad5b: f32,
-    _pad5c: f32,
+    palette_count: u32,
+    palette_scale: f32,
+    palette_offset: f32,
+
+    // Palette (8 color stops)
+    palette_0: vec4<f32>,
+    palette_1: vec4<f32>,
+    palette_2: vec4<f32>,
+    palette_3: vec4<f32>,
+    palette_4: vec4<f32>,
+    palette_5: vec4<f32>,
+    palette_6: vec4<f32>,
+    palette_7: vec4<f32>,
+
+    // Dithering
+    frame_count: u32,
+    dither_strength: f32,
+    _pad6: vec2<f32>,
+
+    // Reserved
+    _reserved0: vec4<f32>,
+    _reserved1: vec4<f32>,
+    _reserved2: vec4<f32>,
+    _reserved3: vec4<f32>,
+    _reserved4: vec4<f32>,
+    _reserved5: vec4<f32>,
+    _reserved6: vec4<f32>,
 }
 
 @group(0) @binding(0)
@@ -468,34 +492,96 @@ fn calc_shadow(ro: vec3<f32>, rd: vec3<f32>) -> f32 {
 }
 
 // ============================================================================
+// DITHERING (eliminates 8-bit color banding)
+// ============================================================================
+
+// Integer hash for screen-space dithering (Wang hash variant)
+fn dither_hash(p: vec2<u32>, frame: u32) -> f32 {
+    var x = p.x + p.y * 1597u + frame * 3571u;
+    x = (x ^ (x >> 16u)) * 0x45d9f3bu;
+    x = (x ^ (x >> 16u)) * 0x45d9f3bu;
+    x = x ^ (x >> 16u);
+    return f32(x) / 4294967295.0;
+}
+
+// Triangular-distribution dither: zero-mean, lower variance than uniform
+fn triangular_dither(pixel: vec2<u32>, frame: u32) -> f32 {
+    let r0 = dither_hash(pixel, frame);
+    let r1 = dither_hash(pixel, frame + 1000000u);
+    return (r0 + r1) - 1.0; // range [-1, 1], triangular distribution
+}
+
+// ============================================================================
+// PALETTE SAMPLING
+// ============================================================================
+
+fn get_palette_color(index: u32) -> vec3<f32> {
+    let i = min(index, max(u.palette_count, 1u) - 1u);
+    switch i {
+        case 0u: { return u.palette_0.xyz; }
+        case 1u: { return u.palette_1.xyz; }
+        case 2u: { return u.palette_2.xyz; }
+        case 3u: { return u.palette_3.xyz; }
+        case 4u: { return u.palette_4.xyz; }
+        case 5u: { return u.palette_5.xyz; }
+        case 6u: { return u.palette_6.xyz; }
+        case 7u: { return u.palette_7.xyz; }
+        default: { return u.palette_0.xyz; }
+    }
+}
+
+fn sample_palette(t_raw: f32) -> vec3<f32> {
+    let count = u.palette_count;
+    if (count <= 1u) {
+        return u.palette_0.xyz;
+    }
+
+    // fract wraps for cyclic palettes; multiply by (count-1) to span all stops
+    let t = fract(t_raw) * f32(count - 1u);
+    let i = u32(floor(t));
+    let f = t - floor(t);
+
+    // Smoothstep for perceptually smoother blending
+    let sf = f * f * (3.0 - 2.0 * f);
+
+    let c0 = get_palette_color(i);
+    let c1 = get_palette_color(i + 1u);
+    return mix(c0, c1, sf);
+}
+
+// ============================================================================
 // COLORING
 // ============================================================================
 
 fn get_color(trap: f32, nor: vec3<f32>, steps: u32) -> vec3<f32> {
-    let base = u.base_color.xyz;
-    let secondary = u.secondary_color.xyz;
-    
     switch u.color_mode {
-        // Solid color
+        // Solid color — first palette color
         case 0u: {
-            return base;
+            return get_palette_color(0u);
         }
-        // Orbit trap coloring
+        // Orbit trap — palette lookup
         case 1u: {
-            let t = clamp(trap * 0.5, 0.0, 1.0);
-            return mix(base, secondary, t);
+            let t = trap * u.palette_scale + u.palette_offset;
+            return sample_palette(t);
         }
-        // Iteration-based coloring
+        // Iteration-based — palette lookup
         case 2u: {
-            let t = f32(steps) / f32(u.max_steps);
-            return mix(base, secondary, t);
+            let t = f32(steps) / f32(u.max_steps) * u.palette_scale + u.palette_offset;
+            return sample_palette(t);
         }
         // Normal-based coloring
         case 3u: {
             return nor * 0.5 + 0.5;
         }
+        // Combined orbit trap + iteration
+        case 4u: {
+            let trap_t = trap * u.palette_scale + u.palette_offset;
+            let iter_t = f32(steps) / f32(u.max_steps);
+            let t = mix(trap_t, iter_t, 0.5);
+            return sample_palette(t);
+        }
         default: {
-            return base;
+            return get_palette_color(0u);
         }
     }
 }
@@ -536,57 +622,63 @@ fn get_ray_direction(uv: vec2<f32>) -> vec3<f32> {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.uv;
-    
+
     // Camera setup
     let ro = u.camera_pos.xyz;
     let rd = get_ray_direction(uv);
-    
+
     // Ray march
     let result = ray_march(ro, rd);
-    
-    // Background
+
+    var col: vec3<f32>;
+
     if (!result.hit) {
+        // Background gradient
         let bg = u.background_color.xyz;
-        // Gradient based on ray direction
         let grad = 0.5 + 0.5 * rd.y;
-        return vec4<f32>(bg * grad, 1.0);
+        col = bg * grad;
+    } else {
+        // Hit point and normal
+        let pos = ro + rd * result.distance;
+        let nor = calc_normal(pos);
+
+        // Surface color from palette
+        col = get_color(result.trap, nor, result.steps);
+
+        // Lighting
+        let light_dir = normalize(u.light_dir.xyz);
+
+        // Diffuse
+        let diff = max(dot(nor, light_dir), 0.0);
+
+        // Specular (Blinn-Phong)
+        let half_vec = normalize(light_dir - rd);
+        let spec = pow(max(dot(nor, half_vec), 0.0), u.shininess);
+
+        // Ambient occlusion
+        let ao = calc_ao(pos, nor);
+
+        // Soft shadow
+        let shadow = calc_shadow(pos + nor * u.epsilon * 2.0, light_dir);
+
+        // Combine lighting
+        col = col * (
+            u.ambient * ao +
+            u.diffuse * diff * shadow +
+            u.specular * spec * shadow
+        );
+
+        // Tone mapping (simple Reinhard)
+        col = col / (col + vec3<f32>(1.0));
+
+        // Gamma correction
+        col = pow(col, vec3<f32>(1.0 / 2.2));
     }
-    
-    // Hit point and normal
-    let pos = ro + rd * result.distance;
-    let nor = calc_normal(pos);
-    
-    // Base color from trap value
-    var col = get_color(result.trap, nor, result.steps);
-    
-    // Lighting
-    let light_dir = normalize(u.light_dir.xyz);
-    
-    // Diffuse
-    let diff = max(dot(nor, light_dir), 0.0);
-    
-    // Specular (Blinn-Phong)
-    let half_vec = normalize(light_dir - rd);
-    let spec = pow(max(dot(nor, half_vec), 0.0), u.shininess);
-    
-    // Ambient occlusion
-    let ao = calc_ao(pos, nor);
-    
-    // Soft shadow
-    let shadow = calc_shadow(pos + nor * u.epsilon * 2.0, light_dir);
-    
-    // Combine lighting
-    col = col * (
-        u.ambient * ao + 
-        u.diffuse * diff * shadow + 
-        u.specular * spec * shadow
-    );
-    
-    // Tone mapping (simple Reinhard)
-    col = col / (col + vec3<f32>(1.0));
-    
-    // Gamma correction
-    col = pow(col, vec3<f32>(1.0 / 2.2));
-    
+
+    // Dithering — eliminates 8-bit banding on both background and surface
+    let pixel = vec2<u32>(u32(in.position.x), u32(in.position.y));
+    let dither = triangular_dither(pixel, u.frame_count) * u.dither_strength;
+    col = col + vec3<f32>(dither / 255.0);
+
     return vec4<f32>(col, 1.0);
 }

@@ -62,23 +62,134 @@ impl Default for LightingConfig {
 /// Color configuration for fractal rendering
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ColorConfig {
-    /// Base color RGB
+    /// Base color RGB (used for solid mode)
     pub base_color: [f32; 3],
-    /// Secondary color for gradients
+    /// Secondary color for gradients (legacy, seeded into palette)
     pub secondary_color: [f32; 3],
     /// Background color RGB
     pub background_color: [f32; 3],
-    /// Color mode (0: solid, 1: orbit trap, 2: iteration-based)
+    /// Color mode (0: solid, 1: orbit trap, 2: iteration, 3: normal, 4: combined)
     pub color_mode: u32,
+    /// Palette colors (up to 8 RGB stops)
+    pub palette_colors: [[f32; 3]; 8],
+    /// Number of active palette stops (1-8)
+    pub palette_count: u32,
+    /// Multiplier on trap/iteration value before palette lookup
+    pub palette_scale: f32,
+    /// Offset added before palette lookup
+    pub palette_offset: f32,
+    /// Dither strength (0.0 = off, 1.0 = normal, up to 2.0)
+    pub dither_strength: f32,
+    /// Index of selected palette preset (for UI tracking)
+    #[serde(default)]
+    pub palette_preset: usize,
 }
 
 impl Default for ColorConfig {
     fn default() -> Self {
+        let preset = &PALETTE_PRESETS[0];
+        let mut palette_colors = [[0.0; 3]; 8];
+        for (i, c) in preset.colors.iter().enumerate() {
+            palette_colors[i] = *c;
+        }
         Self {
-            base_color: [0.8, 0.3, 0.1],
-            secondary_color: [0.1, 0.4, 0.8],
+            base_color: preset.colors[0],
+            secondary_color: preset.colors[preset.colors.len() - 1],
             background_color: [0.05, 0.05, 0.1],
             color_mode: 1, // orbit trap
+            palette_colors,
+            palette_count: preset.colors.len() as u32,
+            palette_scale: 1.0,
+            palette_offset: 0.0,
+            dither_strength: 1.0,
+            palette_preset: 0,
         }
     }
 }
+
+/// A named palette preset
+pub struct PalettePreset {
+    pub name: &'static str,
+    pub colors: &'static [[f32; 3]],
+}
+
+pub const PALETTE_PRESETS: &[PalettePreset] = &[
+    PalettePreset {
+        name: "Inferno",
+        colors: &[
+            [0.0, 0.0, 0.04],
+            [0.28, 0.06, 0.38],
+            [0.72, 0.16, 0.29],
+            [0.99, 0.56, 0.13],
+            [0.98, 0.99, 0.64],
+        ],
+    },
+    PalettePreset {
+        name: "Ocean",
+        colors: &[
+            [0.0, 0.05, 0.15],
+            [0.0, 0.2, 0.5],
+            [0.0, 0.5, 0.7],
+            [0.3, 0.8, 0.8],
+            [0.9, 0.95, 1.0],
+        ],
+    },
+    PalettePreset {
+        name: "Sunset",
+        colors: &[
+            [0.1, 0.0, 0.2],
+            [0.5, 0.0, 0.4],
+            [0.9, 0.2, 0.2],
+            [1.0, 0.6, 0.1],
+            [1.0, 0.95, 0.5],
+        ],
+    },
+    PalettePreset {
+        name: "Magma",
+        colors: &[
+            [0.0, 0.0, 0.02],
+            [0.27, 0.05, 0.35],
+            [0.65, 0.14, 0.35],
+            [0.97, 0.41, 0.22],
+            [0.99, 0.82, 0.53],
+        ],
+    },
+    PalettePreset {
+        name: "Viridis",
+        colors: &[
+            [0.27, 0.0, 0.33],
+            [0.28, 0.23, 0.51],
+            [0.13, 0.44, 0.51],
+            [0.37, 0.65, 0.37],
+            [0.99, 0.91, 0.15],
+        ],
+    },
+    PalettePreset {
+        name: "Classic",
+        colors: &[
+            [0.8, 0.3, 0.1],
+            [0.1, 0.4, 0.8],
+        ],
+    },
+    PalettePreset {
+        name: "Fire",
+        colors: &[
+            [0.0, 0.0, 0.0],
+            [0.5, 0.0, 0.0],
+            [1.0, 0.3, 0.0],
+            [1.0, 0.7, 0.0],
+            [1.0, 1.0, 0.5],
+            [1.0, 1.0, 1.0],
+        ],
+    },
+    PalettePreset {
+        name: "Ice",
+        colors: &[
+            [0.0, 0.0, 0.1],
+            [0.1, 0.2, 0.5],
+            [0.3, 0.5, 0.8],
+            [0.6, 0.8, 1.0],
+            [0.9, 0.95, 1.0],
+        ],
+    },
+];

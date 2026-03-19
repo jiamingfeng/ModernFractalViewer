@@ -21,7 +21,7 @@ pub struct Uniforms {
     pub camera_pos: [f32; 4],      // 16 bytes, offset 0
     pub camera_target: [f32; 4],   // 16 bytes, offset 16
     pub camera_up: [f32; 4],       // 16 bytes, offset 32
-    
+
     // Camera params (16 bytes at offset 48)
     pub camera_fov: f32,           // 4 bytes, offset 48
     pub aspect_ratio: f32,         // 4 bytes, offset 52
@@ -37,13 +37,13 @@ pub struct Uniforms {
     pub power: f32,                // 4 bytes, offset 84
     pub iterations: u32,           // 4 bytes, offset 88
     pub bailout: f32,              // 4 bytes, offset 92
-    
+
     // Fractal parameters part 2 (16 bytes at offset 96)
     pub scale: f32,                // 4 bytes, offset 96
     pub fold_limit: f32,           // 4 bytes, offset 100
     pub min_radius_sq: f32,        // 4 bytes, offset 104
     pub _pad3: f32,                // 4 bytes, offset 108
-    
+
     // Julia C (16 bytes at offset 112)
     pub julia_c: [f32; 4],         // 16 bytes, offset 112
 
@@ -52,11 +52,11 @@ pub struct Uniforms {
     pub epsilon: f32,              // 4 bytes, offset 132
     pub max_distance: f32,         // 4 bytes, offset 136
     pub ao_steps: u32,             // 4 bytes, offset 140
-    
+
     // ao_intensity + 3x f32 padding (16 bytes at offset 144)
     pub ao_intensity: f32,         // 4 bytes, offset 144
     pub _pad4: [f32; 3],           // 12 bytes, offset 148
-    
+
     // Lighting (32 bytes at offset 160)
     pub light_dir: [f32; 4],       // 16 bytes, offset 160
     pub ambient: f32,              // 4 bytes, offset 176
@@ -68,12 +68,32 @@ pub struct Uniforms {
     pub base_color: [f32; 4],      // 16 bytes, offset 192
     pub secondary_color: [f32; 4], // 16 bytes, offset 208
     pub background_color: [f32; 4],// 16 bytes, offset 224
-    
-    // Color mode + padding (16 bytes at offset 240)
+
+    // Color mode + palette controls (16 bytes at offset 240)
     pub color_mode: u32,           // 4 bytes, offset 240
-    pub _pad5: [f32; 3],           // 12 bytes, offset 244
-    
-    // Total: 256 bytes
+    pub palette_count: u32,        // 4 bytes, offset 244
+    pub palette_scale: f32,        // 4 bytes, offset 248
+    pub palette_offset: f32,       // 4 bytes, offset 252
+
+    // Palette colors (128 bytes at offset 256)
+    pub palette_0: [f32; 4],       // 16 bytes, offset 256
+    pub palette_1: [f32; 4],       // 16 bytes, offset 272
+    pub palette_2: [f32; 4],       // 16 bytes, offset 288
+    pub palette_3: [f32; 4],       // 16 bytes, offset 304
+    pub palette_4: [f32; 4],       // 16 bytes, offset 320
+    pub palette_5: [f32; 4],       // 16 bytes, offset 336
+    pub palette_6: [f32; 4],       // 16 bytes, offset 352
+    pub palette_7: [f32; 4],       // 16 bytes, offset 368
+
+    // Dithering (16 bytes at offset 384)
+    pub frame_count: u32,          // 4 bytes, offset 384
+    pub dither_strength: f32,      // 4 bytes, offset 388
+    pub _pad6: [f32; 2],           // 8 bytes, offset 392
+
+    // Reserved (112 bytes at offset 400)
+    pub _reserved: [f32; 28],      // 112 bytes, offset 400
+
+    // Total: 512 bytes
 }
 
 impl Default for Uniforms {
@@ -90,7 +110,7 @@ impl Uniforms {
         let lighting = LightingConfig::default();
         let color = ColorConfig::default();
 
-        Self {
+        let mut u = Self {
             camera_pos: [camera.position.x, camera.position.y, camera.position.z, 0.0],
             camera_target: [camera.target.x, camera.target.y, camera.target.z, 0.0],
             camera_up: [camera.up.x, camera.up.y, camera.up.z, 0.0],
@@ -106,12 +126,12 @@ impl Uniforms {
             power: fractal.power,
             iterations: fractal.iterations,
             bailout: fractal.bailout,
-            
+
             scale: fractal.scale,
             fold_limit: fractal.fold_limit,
             min_radius_sq: fractal.min_radius_sq,
             _pad3: 0.0,
-            
+
             julia_c: fractal.julia_c,
 
             max_steps: ray_march.max_steps,
@@ -127,12 +147,31 @@ impl Uniforms {
             specular: lighting.specular,
             shininess: lighting.shininess,
 
-            base_color: [color.base_color[0], color.base_color[1], color.base_color[2], 1.0],
-            secondary_color: [color.secondary_color[0], color.secondary_color[1], color.secondary_color[2], 1.0],
-            background_color: [color.background_color[0], color.background_color[1], color.background_color[2], 1.0],
-            color_mode: color.color_mode,
-            _pad5: [0.0; 3],
-        }
+            base_color: [0.0; 4],
+            secondary_color: [0.0; 4],
+            background_color: [0.0; 4],
+            color_mode: 0,
+            palette_count: 0,
+            palette_scale: 0.0,
+            palette_offset: 0.0,
+
+            palette_0: [0.0; 4],
+            palette_1: [0.0; 4],
+            palette_2: [0.0; 4],
+            palette_3: [0.0; 4],
+            palette_4: [0.0; 4],
+            palette_5: [0.0; 4],
+            palette_6: [0.0; 4],
+            palette_7: [0.0; 4],
+
+            frame_count: 0,
+            dither_strength: 0.0,
+            _pad6: [0.0; 2],
+
+            _reserved: [0.0; 28],
+        };
+        u.update_color(&color);
+        u
     }
 
     /// Update camera uniforms
@@ -174,12 +213,29 @@ impl Uniforms {
         self.shininess = config.shininess;
     }
 
-    /// Update color config
+    /// Update color config including palette
     pub fn update_color(&mut self, config: &ColorConfig) {
         self.base_color = [config.base_color[0], config.base_color[1], config.base_color[2], 1.0];
         self.secondary_color = [config.secondary_color[0], config.secondary_color[1], config.secondary_color[2], 1.0];
         self.background_color = [config.background_color[0], config.background_color[1], config.background_color[2], 1.0];
         self.color_mode = config.color_mode;
+        self.palette_count = config.palette_count;
+        self.palette_scale = config.palette_scale;
+        self.palette_offset = config.palette_offset;
+        self.dither_strength = config.dither_strength;
+
+        let palettes = [
+            &mut self.palette_0, &mut self.palette_1, &mut self.palette_2, &mut self.palette_3,
+            &mut self.palette_4, &mut self.palette_5, &mut self.palette_6, &mut self.palette_7,
+        ];
+        for (i, slot) in palettes.into_iter().enumerate() {
+            if i < config.palette_count as usize {
+                let c = config.palette_colors[i];
+                *slot = [c[0], c[1], c[2], 1.0];
+            } else {
+                *slot = [0.0, 0.0, 0.0, 1.0];
+            }
+        }
     }
 
     /// Update resolution
@@ -195,4 +251,4 @@ impl Uniforms {
 }
 
 // Compile-time size check
-const _: () = assert!(std::mem::size_of::<Uniforms>() == 256);
+const _: () = assert!(std::mem::size_of::<Uniforms>() == 512);

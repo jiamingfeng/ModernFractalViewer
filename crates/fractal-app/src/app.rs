@@ -331,6 +331,7 @@ impl App {
         self.pipeline.uniforms.update_ray_march(&self.ui_state.ray_march_config);
         self.pipeline.uniforms.update_lighting(&self.ui_state.lighting_config);
         self.pipeline.uniforms.update_color(&self.ui_state.color_config);
+        self.pipeline.uniforms.frame_count = self.pipeline.uniforms.frame_count.wrapping_add(1);
         self.pipeline.update_uniforms(&self.render_ctx.queue);
         
         // Create encoder for fractal rendering
