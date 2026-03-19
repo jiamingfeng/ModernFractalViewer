@@ -33,6 +33,7 @@ cargo ndk -t arm64-v8a -o android/app/src/main/jniLibs build -p fractal-app --re
 ```
 
 CI enforces `-D warnings` (RUSTFLAGS), so the build fails on any warnings.
+When running local checks, do NOT set RUSTFLAGS manually — just use `cargo check --workspace`.
 
 ## Architecture
 

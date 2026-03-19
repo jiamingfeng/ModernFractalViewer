@@ -481,13 +481,18 @@ fn calc_ao(pos: vec3<f32>, nor: vec3<f32>) -> f32 {
 // ============================================================================
 
 fn calc_shadow(ro: vec3<f32>, rd: vec3<f32>) -> f32 {
+    // Soft shadow tuned for fractal SDFs: clamped steps ensure we don't skip
+    // over fine detail, higher k gives softer penumbra, more iterations compensate.
     var res = 1.0;
     var t = 0.01;
-    
-    for (var i = 0u; i < 32u; i = i + 1u) {
+
+    for (var i = 0u; i < 64u; i = i + 1u) {
         let h = map(ro + rd * t).x;
-        res = min(res, 8.0 * h / t);
-        t = t + clamp(h, 0.02, 0.1);
+        if (h < 0.001) {
+            return 0.0;
+        }
+        res = min(res, 16.0 * h / t);
+        t = t + clamp(h, 0.005, 0.05);
         if (res < 0.001 || t > 5.0) {
             break;
         }
@@ -546,12 +551,26 @@ fn sample_palette(t_raw: f32) -> vec3<f32> {
     let i = u32(floor(t));
     let f = t - floor(t);
 
-    // Smoothstep for perceptually smoother blending
-    let sf = f * f * (3.0 - 2.0 * f);
+    // Catmull-Rom spline: uses 4 control points for C1-continuous interpolation
+    // across stop boundaries, much smoother than pairwise smoothstep
+    let p0 = get_palette_color(select(0u, i - 1u, i > 0u));
+    let p1 = get_palette_color(i);
+    let p2 = get_palette_color(i + 1u);
+    let p3 = get_palette_color(min(i + 2u, count - 1u));
 
-    let c0 = get_palette_color(i);
-    let c1 = get_palette_color(i + 1u);
-    return mix(c0, c1, sf);
+    let f2 = f * f;
+    let f3 = f2 * f;
+
+    // Catmull-Rom basis: 0.5 * [(-p0+3p1-3p2+p3)t^3 + (2p0-5p1+4p2-p3)t^2 + (-p0+p2)t + 2p1]
+    let result = 0.5 * (
+        (2.0 * p1) +
+        (-p0 + p2) * f +
+        (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * f2 +
+        (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * f3
+    );
+
+    // Clamp to [0,1] since Catmull-Rom can overshoot
+    return clamp(result, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
 // ============================================================================
@@ -700,10 +719,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         col *= 0.25;
     }
 
-    // Dithering — eliminates 8-bit banding (applied after sample averaging)
+    // Per-channel dithering — independent noise per RGB channel eliminates
+    // 8-bit banding on dark monochromatic surfaces (e.g. deep purples/blues)
     let pixel = vec2<u32>(u32(in.position.x), u32(in.position.y));
-    let dither = triangular_dither(pixel, u.frame_count) * u.dither_strength;
-    col = col + vec3<f32>(dither / 255.0);
+    let dr = triangular_dither(pixel, u.frame_count) * u.dither_strength;
+    let dg = triangular_dither(pixel, u.frame_count + 7919u) * u.dither_strength;
+    let db = triangular_dither(pixel, u.frame_count + 15887u) * u.dither_strength;
+    col = col + vec3<f32>(dr, dg, db) / 255.0;
 
     return vec4<f32>(col, 1.0);
 }
