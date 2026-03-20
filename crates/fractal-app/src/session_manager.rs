@@ -3,7 +3,7 @@
 //! Provides platform-aware storage for fractal exploration sessions.
 //! - Native (Windows/macOS/Linux): filesystem via `dirs::data_dir()`
 //! - WASM: `localStorage` via `web_sys`
-//! - Android: filesystem via `AndroidApp::internal_data_path()`
+//! - Android: filesystem via `dirs::data_dir()` (may be unavailable)
 
 use fractal_core::SavedSession;
 use std::fmt;
@@ -208,24 +208,13 @@ pub struct SessionManager {
 
 impl SessionManager {
     /// Create a new session manager with the platform-appropriate storage backend.
-    #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new() -> Result<Self> {
         let saves_dir = dirs::data_dir()
             .ok_or_else(|| SessionError::Storage("could not determine data directory".into()))?
             .join("ModernFractalViewer")
             .join("saves");
         log::info!("Session saves directory: {}", saves_dir.display());
-        let backend = FileSystemStorage::new(saves_dir)?;
-        Ok(Self {
-            backend: Box::new(backend),
-        })
-    }
-
-    /// Create a new session manager for Android.
-    #[cfg(target_os = "android")]
-    pub fn new_android(data_path: std::path::PathBuf) -> Result<Self> {
-        let saves_dir = data_path.join("saves");
-        log::info!("Session saves directory (Android): {}", saves_dir.display());
         let backend = FileSystemStorage::new(saves_dir)?;
         Ok(Self {
             backend: Box::new(backend),

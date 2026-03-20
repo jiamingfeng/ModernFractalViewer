@@ -14,6 +14,9 @@ cargo run -p fractal-app --release
 # Check all crates without building
 cargo check --workspace
 
+# Cross-check Android compilation (requires: rustup target add aarch64-linux-android)
+cargo check -p fractal-app --target aarch64-linux-android
+
 # Run tests
 cargo test --workspace
 
@@ -34,6 +37,12 @@ cargo ndk -t arm64-v8a -o android/app/src/main/jniLibs build -p fractal-app --re
 
 CI enforces `-D warnings` (RUSTFLAGS), so the build fails on any warnings.
 When running local checks, do NOT set RUSTFLAGS manually — just use `cargo check --workspace`.
+
+Before pushing, verify cross-compilation for at least Windows (default) and Android:
+```bash
+cargo check --workspace
+cargo check -p fractal-app --target aarch64-linux-android
+```
 
 ## Architecture
 
@@ -57,6 +66,7 @@ The project is a 4-crate Rust workspace. Data flows: `fractal-core` (math/types)
 | Time | `std::time::Instant` | `web_time::Instant` | `std::time::Instant` |
 | Logging | `env_logger` | `console_log` | `android_logger` |
 | Shared state (WASM) | N/A | `Rc<RefCell<>>` | N/A |
+| Session storage | `dirs::data_dir()/ModernFractalViewer/saves/` | `localStorage` | `dirs::data_dir()` (may be `None`) |
 
 ### Rendering Pipeline
 
