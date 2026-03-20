@@ -1,10 +1,9 @@
 # Auto detect text files and perform LF normalization
 * text=auto
-
 # Shell scripts must use LF
 *.sh text eol=lf
 android/gradlew text eol=lf
-
 # Batch scripts must use CRLF
 *.bat text eol=crlf
 *.cmd text eol=crlf
+*.raw filter=lfs diff=lfs merge=lfs -text

@@ -220,7 +220,7 @@ fn sdf_menger(pos: vec3<f32>) -> vec2<f32> {
     
     for (var i = 0u; i < iterations; i = i + 1u) {
         // Fold space
-        let a = z * s % 2.0 - 1.0;
+        let a = (z * s % 2.0 + 2.0) % 2.0 - 1.0;
         s = s * 3.0;
         let r = abs(1.0 - 3.0 * abs(a));
         
