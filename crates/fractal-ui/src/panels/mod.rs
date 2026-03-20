@@ -106,7 +106,7 @@ impl FractalPanel {
             let config = &mut state.ray_march_config;
 
             ui.horizontal(|ui| {
-                ui.label("Max Steps:");
+                ui.label("Ray Steps:");
                 let mut steps = config.max_steps as i32;
                 if ui.add(egui::DragValue::new(&mut steps).range(16..=512)).changed() {
                     config.max_steps = steps as u32;
@@ -115,7 +115,7 @@ impl FractalPanel {
             });
 
             ui.horizontal(|ui| {
-                ui.label("Epsilon:");
+                ui.label("Surface Precision:");
                 if ui
                     .add(
                         egui::DragValue::new(&mut config.epsilon)
@@ -130,7 +130,7 @@ impl FractalPanel {
             });
 
             ui.horizontal(|ui| {
-                ui.label("Max Distance:");
+                ui.label("View Distance:");
                 if ui
                     .add(egui::DragValue::new(&mut config.max_distance).range(10.0..=1000.0))
                     .changed()
@@ -140,7 +140,7 @@ impl FractalPanel {
             });
 
             ui.horizontal(|ui| {
-                ui.label("AO Steps:");
+                ui.label("Shadow Detail:");
                 let mut ao = config.ao_steps as i32;
                 if ui.add(egui::DragValue::new(&mut ao).range(0..=16)).changed() {
                     config.ao_steps = ao as u32;
@@ -149,7 +149,7 @@ impl FractalPanel {
             });
 
             ui.horizontal(|ui| {
-                ui.label("AO Intensity:");
+                ui.label("Shadow Depth:");
                 if ui
                     .add(egui::Slider::new(&mut config.ao_intensity, 0.0..=1.0))
                     .changed()
@@ -159,7 +159,7 @@ impl FractalPanel {
             });
 
             ui.horizontal(|ui| {
-                ui.label("Normal Epsilon:");
+                ui.label("Normal Precision:");
                 if ui
                     .add(
                         egui::DragValue::new(&mut config.normal_epsilon)
@@ -174,7 +174,7 @@ impl FractalPanel {
             });
 
             ui.horizontal(|ui| {
-                ui.label("Samples:");
+                ui.label("Anti-Aliasing:");
                 egui::ComboBox::from_id_salt("sample_count")
                     .selected_text(format!("{}x", config.sample_count))
                     .show_ui(ui, |ui| {

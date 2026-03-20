@@ -85,7 +85,7 @@ impl FractalParamsPanel {
         });
 
         ui.horizontal(|ui| {
-            ui.label("Bailout:");
+            ui.label("Escape Radius:");
             if ui
                 .add(egui::Slider::new(&mut params.bailout, 1.0..=8.0))
                 .changed()
@@ -172,7 +172,7 @@ impl FractalParamsPanel {
         let mut changed = false;
 
         ui.horizontal(|ui| {
-            ui.label("Scale:");
+            ui.label("Box Scale:");
             if ui
                 .add(egui::Slider::new(&mut params.scale, -3.0..=3.0))
                 .changed()
@@ -191,7 +191,7 @@ impl FractalParamsPanel {
         });
 
         ui.horizontal(|ui| {
-            ui.label("Fold Limit:");
+            ui.label("Fold Range:");
             if ui
                 .add(egui::Slider::new(&mut params.fold_limit, 0.5..=2.0))
                 .changed()
@@ -201,7 +201,7 @@ impl FractalParamsPanel {
         });
 
         ui.horizontal(|ui| {
-            ui.label("Min Radius²:");
+            ui.label("Inner Radius:");
             if ui
                 .add(egui::Slider::new(&mut params.min_radius_sq, 0.01..=1.0))
                 .changed()
@@ -226,7 +226,7 @@ impl FractalParamsPanel {
         });
 
         ui.horizontal(|ui| {
-            ui.label("Scale:");
+            ui.label("Size Ratio:");
             if ui
                 .add(egui::Slider::new(&mut params.scale, 1.5..=3.0))
                 .changed()

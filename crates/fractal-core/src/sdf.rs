@@ -105,7 +105,7 @@ impl Default for ColorConfig {
             color_mode: 1, // orbit trap
             palette_colors,
             palette_count: preset.colors.len() as u32,
-            palette_scale: 1.0,
+            palette_scale: 1.6,
             palette_offset: 0.0,
             dither_strength: 1.0,
             palette_preset: 0,

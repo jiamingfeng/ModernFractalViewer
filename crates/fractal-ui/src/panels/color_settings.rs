@@ -15,7 +15,7 @@ impl ColorSettingsPanel {
 
             // Color mode selector
             ui.horizontal(|ui| {
-                ui.label("Mode:");
+                ui.label("Color Mode:");
                 egui::ComboBox::from_id_salt("color_mode")
                     .selected_text(match color_config.color_mode {
                         0 => "Solid",
@@ -115,14 +115,14 @@ impl ColorSettingsPanel {
 
             // Palette scale and offset
             ui.horizontal(|ui| {
-                ui.label("Scale:");
+                ui.label("Color Spread:");
                 if ui.add(egui::Slider::new(&mut color_config.palette_scale, 0.1..=10.0).logarithmic(true)).changed() {
                     changed = true;
                 }
             });
 
             ui.horizontal(|ui| {
-                ui.label("Offset:");
+                ui.label("Color Shift:");
                 if ui.add(egui::Slider::new(&mut color_config.palette_offset, 0.0..=1.0)).changed() {
                     changed = true;
                 }
@@ -148,28 +148,28 @@ impl ColorSettingsPanel {
             let lighting = &mut state.lighting_config;
 
             ui.horizontal(|ui| {
-                ui.label("Ambient:");
+                ui.label("Ambient Light:");
                 if ui.add(egui::Slider::new(&mut lighting.ambient, 0.0..=1.0)).changed() {
                     changed = true;
                 }
             });
 
             ui.horizontal(|ui| {
-                ui.label("Diffuse:");
+                ui.label("Direct Light:");
                 if ui.add(egui::Slider::new(&mut lighting.diffuse, 0.0..=1.0)).changed() {
                     changed = true;
                 }
             });
 
             ui.horizontal(|ui| {
-                ui.label("Specular:");
+                ui.label("Reflection:");
                 if ui.add(egui::Slider::new(&mut lighting.specular, 0.0..=1.0)).changed() {
                     changed = true;
                 }
             });
 
             ui.horizontal(|ui| {
-                ui.label("Shininess:");
+                ui.label("Gloss:");
                 if ui.add(egui::Slider::new(&mut lighting.shininess, 1.0..=128.0)).changed() {
                     changed = true;
                 }
@@ -179,7 +179,7 @@ impl ColorSettingsPanel {
 
             // Dither strength
             ui.horizontal(|ui| {
-                ui.label("Dither:");
+                ui.label("Noise Smoothing:");
                 if ui.add(egui::Slider::new(&mut color_config.dither_strength, 0.0..=2.0)).changed() {
                     changed = true;
                 }
