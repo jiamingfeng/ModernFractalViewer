@@ -131,6 +131,10 @@ Shaders are written in WGSL (WebGPU Shading Language). The wgpu library uses [Na
 
 For deep zoom, we use double-single arithmetic - representing numbers as `hi + lo` where `hi` and `lo` are both `f32`. This provides ~14 digits of precision instead of ~7.
 
+## Development
+
+For testing instructions and the full test inventory, see the [Testing Guide](docs/TESTING.md).
+
 ## License
 
 MIT License

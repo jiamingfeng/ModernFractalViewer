@@ -15,8 +15,8 @@ use fractal_core::sdf::{ColorConfig, LightingConfig, RayMarchConfig};
 use fractal_core::{Camera, FractalParams, FractalType};
 use fractal_renderer::{FractalPipeline, ThumbnailCapture};
 
-const WIDTH: u32 = 64;
-const HEIGHT: u32 = 64;
+const WIDTH: u32 = 128;
+const HEIGHT: u32 = 128;
 
 /// Set up a headless GPU device + queue.
 fn setup_gpu() -> Option<(wgpu::Device, wgpu::Queue)> {
