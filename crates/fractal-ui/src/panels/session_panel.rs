@@ -10,13 +10,8 @@ impl SessionPanel {
         egui::CollapsingHeader::new("Sessions")
             .default_open(false)
             .show(ui, |ui| {
-                // -- Save section --
-                ui.horizontal(|ui| {
-                    ui.label("Name:");
-                    ui.text_edit_singleline(&mut state.save_name);
-                });
-
-                if ui.button("Save Current Session").clicked() {
+                // -- Save New button --
+                if ui.button("Save New Session").clicked() {
                     state.pending_save = true;
                 }
 
@@ -29,6 +24,7 @@ impl SessionPanel {
                     ui.weak("No saved sessions.");
                 } else {
                     let mut load_id: Option<String> = None;
+                    let mut overwrite_id: Option<String> = None;
                     let mut delete_id: Option<String> = None;
 
                     egui::ScrollArea::vertical()
@@ -67,6 +63,9 @@ impl SessionPanel {
                                                 if ui.small_button("Load").clicked() {
                                                     load_id = Some(slot.id.clone());
                                                 }
+                                                if ui.small_button("Save").clicked() {
+                                                    overwrite_id = Some(slot.id.clone());
+                                                }
                                                 if ui.small_button("Delete").clicked() {
                                                     delete_id = Some(slot.id.clone());
                                                 }
@@ -80,6 +79,9 @@ impl SessionPanel {
 
                     if let Some(id) = load_id {
                         state.pending_load = Some(id);
+                    }
+                    if let Some(id) = overwrite_id {
+                        state.pending_overwrite = Some(id);
                     }
                     if let Some(id) = delete_id {
                         state.pending_delete = Some(id);

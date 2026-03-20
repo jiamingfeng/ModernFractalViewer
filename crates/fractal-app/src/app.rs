@@ -477,10 +477,15 @@ impl App {
             self.refresh_session_slots();
         }
 
-        // Handle save
+        // Handle save new
         if self.ui_state.pending_save {
             self.ui_state.pending_save = false;
-            self.save_session();
+            self.save_session(None);
+        }
+
+        // Handle overwrite existing
+        if let Some(id) = self.ui_state.pending_overwrite.take() {
+            self.save_session(Some(&id));
         }
 
         // Handle load
@@ -499,7 +504,9 @@ impl App {
         }
     }
 
-    fn save_session(&mut self) {
+    /// Save the current session. If `overwrite_id` is `Some`, overwrites that slot;
+    /// otherwise creates a new slot.
+    fn save_session(&mut self, overwrite_id: Option<&str>) {
         // Capture thumbnail: render fractal at thumbnail resolution
         let thumb_w = self.thumbnail_capture.width();
         let thumb_h = self.thumbnail_capture.height();
@@ -529,16 +536,18 @@ impl App {
         // Encode as PNG
         let thumbnail_base64 = encode_thumbnail_png(&pixels, thumb_w, thumb_h);
 
-        // Build session
-        let name = if self.ui_state.save_name.trim().is_empty() {
-            self.ui_state.fractal_params.fractal_type.name().to_string()
-        } else {
-            self.ui_state.save_name.trim().to_string()
-        };
+        // Auto-generate name from fractal type + short timestamp
+        let timestamp = SessionManager::timestamp_iso8601();
+        let short_ts = &timestamp[..10]; // YYYY-MM-DD
+        let name = format!(
+            "{} {}",
+            self.ui_state.fractal_params.fractal_type.name(),
+            short_ts
+        );
 
         let session = SavedSession {
             version: "1".to_string(),
-            timestamp: SessionManager::timestamp_iso8601(),
+            timestamp,
             name,
             fractal_type_name: self.ui_state.fractal_params.fractal_type.name().to_string(),
             thumbnail_base64,
@@ -552,11 +561,13 @@ impl App {
         };
 
         if let Some(ref mgr) = self.session_manager {
-            match mgr.save(&session) {
-                Ok(id) => {
-                    log::info!("Session saved as {id}");
-                    self.ui_state.save_name.clear();
-                }
+            let result = if let Some(id) = overwrite_id {
+                mgr.save_overwrite(id, &session).map(|()| id.to_string())
+            } else {
+                mgr.save(&session)
+            };
+            match result {
+                Ok(id) => log::info!("Session saved as {id}"),
                 Err(e) => log::error!("Failed to save session: {e}"),
             }
         }

@@ -96,21 +96,24 @@ impl StorageBackend for FileSystemStorage {
     }
 
     fn list(&self) -> Result<Vec<String>> {
-        let mut saves = Vec::new();
+        let mut saves: Vec<(String, std::time::SystemTime)> = Vec::new();
         if self.saves_dir.exists() {
             for entry in std::fs::read_dir(&self.saves_dir)? {
                 let entry = entry?;
                 let path = entry.path();
                 if path.extension().and_then(|e| e.to_str()) == Some("json") {
                     if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                        saves.push(stem.to_string());
+                        let mtime = entry.metadata()
+                            .and_then(|m| m.modified())
+                            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                        saves.push((stem.to_string(), mtime));
                     }
                 }
             }
         }
-        // Sort reverse-alphabetically (timestamp IDs sort newest-first)
-        saves.sort_unstable_by(|a, b| b.cmp(a));
-        Ok(saves)
+        // Sort by modification time, newest first
+        saves.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+        Ok(saves.into_iter().map(|(id, _)| id).collect())
     }
 }
 
@@ -229,29 +232,11 @@ impl SessionManager {
         })
     }
 
-    /// Generate a unique save ID from the current timestamp.
+    /// Generate a unique save ID using UUID v4.
+    ///
+    /// UUIDs avoid clashing when save files are transferred across machines.
     pub fn generate_id() -> String {
-        // Use SystemTime to avoid adding chrono dependency.
-        // Format: YYYYMMDD_HHMMSS (UTC)
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        // Convert epoch seconds to date/time components
-        let secs = now;
-        let days = secs / 86400;
-        let time_of_day = secs % 86400;
-        let hours = time_of_day / 3600;
-        let minutes = (time_of_day % 3600) / 60;
-        let seconds = time_of_day % 60;
-
-        // Simple days-to-date conversion (accounts for leap years)
-        let (year, month, day) = days_to_ymd(days);
-
-        format!(
-            "{year:04}{month:02}{day:02}_{hours:02}{minutes:02}{seconds:02}"
-        )
+        uuid::Uuid::new_v4().to_string()
     }
 
     /// Generate an ISO 8601 timestamp string.
@@ -272,13 +257,21 @@ impl SessionManager {
         format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}Z")
     }
 
-    /// Save a session.
+    /// Save a session to a new slot (generates a new UUID).
     pub fn save(&self, session: &SavedSession) -> Result<String> {
         let id = Self::generate_id();
         let json = serde_json::to_string_pretty(session)?;
         self.backend.save(&id, &json)?;
         log::info!("Saved session '{}' as {}", session.name, id);
         Ok(id)
+    }
+
+    /// Save a session, overwriting an existing slot.
+    pub fn save_overwrite(&self, id: &str, session: &SavedSession) -> Result<()> {
+        let json = serde_json::to_string_pretty(session)?;
+        self.backend.save(id, &json)?;
+        log::info!("Overwrote session '{}' at {}", session.name, id);
+        Ok(())
     }
 
     /// Load a session by ID.
@@ -358,14 +351,22 @@ mod tests {
     #[test]
     fn test_generate_id_format() {
         let id = SessionManager::generate_id();
-        assert_eq!(id.len(), 15); // YYYYMMDD_HHMMSS
-        assert_eq!(id.as_bytes()[8], b'_');
-        // All other chars should be digits
-        for (i, c) in id.chars().enumerate() {
-            if i != 8 {
-                assert!(c.is_ascii_digit(), "char at {i} is not a digit: {c}");
-            }
+        // UUID v4 format: 8-4-4-4-12 hex chars (36 total with hyphens)
+        assert_eq!(id.len(), 36);
+        let parts: Vec<&str> = id.split('-').collect();
+        assert_eq!(parts.len(), 5);
+        assert_eq!(parts[0].len(), 8);
+        assert_eq!(parts[1].len(), 4);
+        assert_eq!(parts[2].len(), 4);
+        assert_eq!(parts[3].len(), 4);
+        assert_eq!(parts[4].len(), 12);
+        // All non-hyphen chars should be hex digits
+        for c in id.chars() {
+            assert!(c == '-' || c.is_ascii_hexdigit(), "unexpected char: {c}");
         }
+        // Two generated IDs should be unique
+        let id2 = SessionManager::generate_id();
+        assert_ne!(id, id2);
     }
 
     #[test]
@@ -421,10 +422,11 @@ mod tests {
         storage.save("aaa", "1").unwrap();
         storage.save("ccc", "2").unwrap();
         storage.save("bbb", "3").unwrap();
-        let list = storage.list().unwrap();
+        let mut list = storage.list().unwrap();
         assert_eq!(list.len(), 3);
-        // Should be sorted reverse-alphabetically
-        assert_eq!(list, vec!["ccc", "bbb", "aaa"]);
+        // All IDs should be present (sorted by mtime, newest first)
+        list.sort();
+        assert_eq!(list, vec!["aaa", "bbb", "ccc"]);
     }
 
     #[test]
@@ -447,6 +449,26 @@ mod tests {
         assert_eq!(loaded.name, "Test Save");
         assert_eq!(loaded.fractal_type_name, "Mandelbulb");
         assert_eq!(loaded.version, "1");
+    }
+
+    #[test]
+    fn test_save_overwrite() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = SessionManager::new_with_dir(dir.path().to_path_buf()).unwrap();
+        let mut session = fractal_core::SavedSession::default();
+        session.name = "Original".to_string();
+        let id = mgr.save(&session).unwrap();
+
+        // Overwrite with new data
+        session.name = "Updated".to_string();
+        mgr.save_overwrite(&id, &session).unwrap();
+
+        let loaded = mgr.load(&id).unwrap();
+        assert_eq!(loaded.name, "Updated");
+
+        // Should still be only one save
+        let list = mgr.list_saves().unwrap();
+        assert_eq!(list.len(), 1);
     }
 
     #[test]

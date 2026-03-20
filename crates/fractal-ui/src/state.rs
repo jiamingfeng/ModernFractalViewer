@@ -55,10 +55,10 @@ pub struct UiState {
     pub vsync: bool,
 
     // -- Session save/load state (transient, not saved) --
-    /// Name for the next save
-    pub save_name: String,
-    /// Request to save current session
+    /// Request to save to a new session slot
     pub pending_save: bool,
+    /// Request to overwrite an existing session (save ID)
+    pub pending_overwrite: Option<String>,
     /// Request to load a session (save ID)
     pub pending_load: Option<String>,
     /// Request to delete a session (save ID)
@@ -82,8 +82,8 @@ impl Default for UiState {
             auto_rotate: false,
             rotation_speed: 0.5,
             vsync: true,
-            save_name: String::new(),
             pending_save: false,
+            pending_overwrite: None,
             pending_load: None,
             pending_delete: None,
             session_slots: Vec::new(),
