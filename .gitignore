@@ -31,3 +31,4 @@ android/.gradle/
 /.vscode/
 /.cargo/
 /Cargo.lock
+/.claude/

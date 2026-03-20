@@ -41,7 +41,10 @@ pub struct App {
 }
 
 impl App {
-    pub async fn new(window: Arc<Window>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new(
+        window: Arc<Window>,
+        _data_dir_override: Option<std::path::PathBuf>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         // Initialize wgpu render context
         let render_ctx = RenderContext::new(window.clone()).await?;
         
@@ -72,11 +75,35 @@ impl App {
         let camera = Camera::default();
 
         // Session save/load
-        let session_manager = match SessionManager::new() {
-            Ok(mgr) => Some(mgr),
-            Err(e) => {
-                log::warn!("Session manager unavailable: {e}");
-                None
+        let session_manager = {
+            #[cfg(target_os = "android")]
+            {
+                match _data_dir_override {
+                    Some(dir) => {
+                        let saves_dir = dir.join("saves");
+                        match SessionManager::new_with_dir(saves_dir) {
+                            Ok(mgr) => Some(mgr),
+                            Err(e) => {
+                                log::warn!("Session manager unavailable: {e}");
+                                None
+                            }
+                        }
+                    }
+                    None => {
+                        log::warn!("Session manager unavailable: no data directory on Android");
+                        None
+                    }
+                }
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                match SessionManager::new() {
+                    Ok(mgr) => Some(mgr),
+                    Err(e) => {
+                        log::warn!("Session manager unavailable: {e}");
+                        None
+                    }
+                }
             }
         };
 

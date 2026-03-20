@@ -28,9 +28,14 @@ fn android_main(android_app: AndroidApp) {
 
     log::info!("Starting Fractal Viewer (Android)");
 
+    // Extract internal data path before android_app is consumed by the event loop
+    let data_dir = android_app.internal_data_path();
+    log::info!("Android data dir: {:?}", data_dir);
+
     struct AndroidAppHandler {
         app: Option<App>,
         window: Option<Arc<Window>>,
+        data_dir: Option<std::path::PathBuf>,
     }
 
     impl ApplicationHandler for AndroidAppHandler {
@@ -46,7 +51,7 @@ fn android_main(android_app: AndroidApp) {
                 );
                 self.window = Some(window.clone());
 
-                match pollster::block_on(App::new(window)) {
+                match pollster::block_on(App::new(window, self.data_dir.clone())) {
                     Ok(app) => {
                         log::info!("Application initialized successfully (Android)");
                         self.app = Some(app);
@@ -86,6 +91,7 @@ fn android_main(android_app: AndroidApp) {
     let mut handler = AndroidAppHandler {
         app: None,
         window: None,
+        data_dir,
     };
     event_loop
         .run_app(&mut handler)

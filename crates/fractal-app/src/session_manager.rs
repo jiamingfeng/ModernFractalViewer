@@ -3,7 +3,7 @@
 //! Provides platform-aware storage for fractal exploration sessions.
 //! - Native (Windows/macOS/Linux): filesystem via `dirs::data_dir()`
 //! - WASM: `localStorage` via `web_sys`
-//! - Android: filesystem via `dirs::data_dir()` (may be unavailable)
+//! - Android: filesystem via `AndroidApp::internal_data_path()`
 
 use fractal_core::SavedSession;
 use std::fmt;
@@ -304,8 +304,8 @@ impl SessionManager {
         self.backend.list()
     }
 
-    /// Create a session manager with a custom directory (for testing).
-    #[cfg(test)]
+    /// Create a session manager with a custom directory (for testing and Android).
+    #[cfg(any(test, target_os = "android"))]
     pub fn new_with_dir(dir: std::path::PathBuf) -> Result<Self> {
         let backend = FileSystemStorage::new(dir)?;
         Ok(Self {

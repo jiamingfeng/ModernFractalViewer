@@ -58,7 +58,7 @@ impl ApplicationHandler for AppHandler {
             // On native, we use pollster to block on the async initialization
             #[cfg(not(target_arch = "wasm32"))]
             {
-                match pollster::block_on(App::new(window)) {
+                match pollster::block_on(App::new(window, None)) {
                     Ok(app) => {
                         log::info!("Application initialized successfully");
                         self.app = Some(app);
@@ -154,7 +154,7 @@ fn main() {
                     let app_ref = self.app.clone();
                     let window_for_redraw = window.clone();
                     wasm_bindgen_futures::spawn_local(async move {
-                        match App::new(window).await {
+                        match App::new(window, None).await {
                             Ok(app) => {
                                 log::info!("Application initialized successfully (WASM)");
                                 *app_ref.borrow_mut() = Some(app);

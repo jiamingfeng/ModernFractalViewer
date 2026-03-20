@@ -67,6 +67,10 @@ pub struct UiState {
     pub session_slots: Vec<SessionSlotDisplay>,
     /// Whether the session slot list needs refreshing
     pub sessions_dirty: bool,
+    /// Confirmation dialog state for overwrite (session id, session name)
+    pub confirming_overwrite: Option<(String, String)>,
+    /// Confirmation dialog state for delete (session id, session name)
+    pub confirming_delete: Option<(String, String)>,
 }
 
 impl Default for UiState {
@@ -88,6 +92,8 @@ impl Default for UiState {
             pending_delete: None,
             session_slots: Vec::new(),
             sessions_dirty: true,
+            confirming_overwrite: None,
+            confirming_delete: None,
         }
     }
 }
