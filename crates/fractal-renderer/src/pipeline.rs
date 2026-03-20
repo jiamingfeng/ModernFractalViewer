@@ -27,8 +27,15 @@ impl FractalPipeline {
     /// This translation happens once at shader creation time, not per-frame.
     /// Performance is identical to hand-written SPIR-V after initial compilation.
     pub fn new(ctx: &RenderContext) -> Self {
-        let device = &ctx.device;
+        Self::create(&ctx.device, ctx.format)
+    }
 
+    /// Create a pipeline without a window/surface (for headless testing).
+    pub fn new_headless(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+        Self::create(device, format)
+    }
+
+    fn create(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
         // Load and compile shaders - Naga handles transpilation to native format
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Fractal Shader"),
@@ -89,7 +96,7 @@ impl FractalPipeline {
                 module: &shader,
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: ctx.format,
+                    format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],

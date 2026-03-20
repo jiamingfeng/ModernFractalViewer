@@ -61,3 +61,50 @@ impl Default for SavedSession {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serde_roundtrip() {
+        let mut s = SavedSession::default();
+        s.name = "Test Session".to_string();
+        s.timestamp = "2026-03-20T12:00:00Z".to_string();
+        s.fractal_type_name = "Mandelbulb".to_string();
+        s.fractal_params = FractalParams::for_type(crate::fractals::FractalType::Julia3D);
+        let json = serde_json::to_string(&s).unwrap();
+        let s2: SavedSession = serde_json::from_str(&json).unwrap();
+        assert_eq!(s.name, s2.name);
+        assert_eq!(s.version, s2.version);
+        assert_eq!(s.fractal_params.iterations, s2.fractal_params.iterations);
+    }
+
+    #[test]
+    fn test_backward_compat_missing_fields() {
+        let json = r#"{"version":"1"}"#;
+        let s: SavedSession = serde_json::from_str(json).unwrap();
+        assert_eq!(s.version, "1");
+        // All other fields should be defaults
+        assert_eq!(s.thumbnail_width, 320);
+        assert_eq!(s.fractal_params.fractal_type, crate::fractals::FractalType::Mandelbulb);
+    }
+
+    #[test]
+    fn test_unknown_fields_ignored() {
+        let json = r#"{"version":"1","some_future_field":"hello","another_one":42}"#;
+        let s: SavedSession = serde_json::from_str(json).unwrap();
+        assert_eq!(s.version, "1");
+    }
+
+    #[test]
+    fn test_nested_config_defaults() {
+        // Missing nested config fields should get defaults
+        let json = r#"{"version":"1","ray_march_config":{"max_steps":256}}"#;
+        let s: SavedSession = serde_json::from_str(json).unwrap();
+        assert_eq!(s.ray_march_config.max_steps, 256);
+        // Other fields in ray_march_config should be defaults
+        assert_eq!(s.ray_march_config.epsilon, 0.001);
+        assert_eq!(s.ray_march_config.sample_count, 1);
+    }
+}

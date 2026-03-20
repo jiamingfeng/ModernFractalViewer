@@ -266,3 +266,94 @@ impl Uniforms {
 
 // Compile-time size check
 const _: () = assert!(std::mem::size_of::<Uniforms>() == 512);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fractal_core::sdf::{ColorConfig, LightingConfig, RayMarchConfig};
+
+    const EPS: f32 = 1e-5;
+
+    #[test]
+    fn test_uniforms_size_512() {
+        assert_eq!(std::mem::size_of::<Uniforms>(), 512);
+    }
+
+    #[test]
+    fn test_update_resolution() {
+        let mut u = Uniforms::new();
+        u.update_resolution(1920, 1080);
+        assert_eq!(u.resolution[0], 1920.0);
+        assert_eq!(u.resolution[1], 1080.0);
+        assert!((u.aspect_ratio - 1920.0 / 1080.0).abs() < EPS);
+    }
+
+    #[test]
+    fn test_update_fractal() {
+        let mut u = Uniforms::new();
+        let p = FractalParams::for_type(fractal_core::FractalType::Mandelbulb);
+        u.update_fractal(&p);
+        assert_eq!(u.fractal_type, 0); // Mandelbulb = 0
+        assert_eq!(u.power, 8.0);
+        assert_eq!(u.iterations, 12);
+        assert_eq!(u.bailout, 2.0);
+    }
+
+    #[test]
+    fn test_update_camera() {
+        let mut u = Uniforms::new();
+        let mut cam = Camera::default();
+        cam.orbit(0.5, 0.3);
+        u.update_camera(&cam, 16.0 / 9.0);
+        assert_eq!(u.camera_pos[0], cam.position.x);
+        assert_eq!(u.camera_pos[1], cam.position.y);
+        assert_eq!(u.camera_pos[2], cam.position.z);
+        assert_eq!(u.camera_fov, cam.fov);
+        assert!((u.aspect_ratio - 16.0 / 9.0).abs() < EPS);
+        assert_eq!(u.near_clip, cam.adaptive_near_clip());
+    }
+
+    #[test]
+    fn test_update_color() {
+        let mut u = Uniforms::new();
+        let c = ColorConfig::default();
+        u.update_color(&c);
+        assert_eq!(u.color_mode, c.color_mode);
+        assert_eq!(u.palette_count, c.palette_count);
+        assert_eq!(u.palette_scale, c.palette_scale);
+        assert_eq!(u.palette_offset, c.palette_offset);
+        assert_eq!(u.dither_strength, c.dither_strength);
+        // First palette color should match
+        assert_eq!(u.palette_0[0], c.palette_colors[0][0]);
+        assert_eq!(u.palette_0[1], c.palette_colors[0][1]);
+        assert_eq!(u.palette_0[2], c.palette_colors[0][2]);
+    }
+
+    #[test]
+    fn test_update_ray_march() {
+        let mut u = Uniforms::new();
+        let rm = RayMarchConfig::default();
+        u.update_ray_march(&rm);
+        assert_eq!(u.max_steps, rm.max_steps);
+        assert_eq!(u.epsilon, rm.epsilon);
+        assert_eq!(u.max_distance, rm.max_distance);
+        assert_eq!(u.ao_steps, rm.ao_steps);
+        assert_eq!(u.ao_intensity, rm.ao_intensity);
+        assert_eq!(u.normal_epsilon, rm.normal_epsilon);
+        assert_eq!(u.sample_count, rm.sample_count);
+    }
+
+    #[test]
+    fn test_update_lighting() {
+        let mut u = Uniforms::new();
+        let lc = LightingConfig::default();
+        u.update_lighting(&lc);
+        assert_eq!(u.light_dir[0], lc.light_dir[0]);
+        assert_eq!(u.light_dir[1], lc.light_dir[1]);
+        assert_eq!(u.light_dir[2], lc.light_dir[2]);
+        assert_eq!(u.ambient, lc.ambient);
+        assert_eq!(u.diffuse, lc.diffuse);
+        assert_eq!(u.specular, lc.specular);
+        assert_eq!(u.shininess, lc.shininess);
+    }
+}

@@ -74,6 +74,12 @@ wgpu uses Naga to transpile WGSL to SPIR-V (Vulkan), MSL (Metal), HLSL (DirectX 
 2. Implement SDF function in WGSL (`raymarcher.wgsl`)
 3. Add UI controls in `fractal-ui/src/panels/fractal_params.rs`
 
+## Testing Guidelines
+
+- Do NOT write tests that only assert default values from `Default::default()` or constructors. Default values change frequently and such tests add no behavioral coverage. Tests should verify logic, constraints, invariants, and round-trips instead.
+- Snapshot/golden-image tests are feature-gated behind `snapshot-tests` and require a GPU: `cargo test -p fractal-renderer --features snapshot-tests`
+- To regenerate golden images: `GENERATE_GOLDEN=1 cargo test -p fractal-renderer --features snapshot-tests`
+
 ## Key Technical Details
 
 - **Deep zoom**: Uses double-single arithmetic (`hi: f32 + lo: f32`) in WGSL to emulate f64 precision (~14 decimal digits), enabling zoom to ~10^12. Implemented via Knuth's TwoSum and Veltkamp multiplication.

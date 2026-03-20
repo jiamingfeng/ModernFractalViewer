@@ -110,3 +110,29 @@ impl UiState {
         self.fractal_params = FractalParams::for_type(fractal_type);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_reset_preserves_fractal_type() {
+        let mut state = UiState::default();
+        state.set_fractal_type(FractalType::Julia3D);
+        assert_eq!(state.fractal_params.fractal_type, FractalType::Julia3D);
+        state.reset_to_defaults();
+        // Fractal type should be preserved
+        assert_eq!(state.fractal_params.fractal_type, FractalType::Julia3D);
+    }
+
+    #[test]
+    fn test_set_fractal_type() {
+        let mut state = UiState::default();
+        state.set_fractal_type(FractalType::Menger);
+        let expected = FractalParams::for_type(FractalType::Menger);
+        assert_eq!(state.fractal_params.fractal_type, FractalType::Menger);
+        assert_eq!(state.fractal_params.iterations, expected.iterations);
+        assert_eq!(state.fractal_params.scale, expected.scale);
+    }
+
+}

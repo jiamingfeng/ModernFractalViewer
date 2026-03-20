@@ -143,3 +143,60 @@ impl FractalParams {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_all_returns_six_types() {
+        assert_eq!(FractalType::all().len(), 6);
+    }
+
+    #[test]
+    fn test_all_types_unique() {
+        let all = FractalType::all();
+        for (i, a) in all.iter().enumerate() {
+            for b in &all[i + 1..] {
+                assert_ne!(a, b);
+            }
+        }
+    }
+
+    #[test]
+    fn test_name_not_empty() {
+        for ft in FractalType::all() {
+            assert!(!ft.name().is_empty(), "{:?} has empty name", ft);
+        }
+    }
+
+    #[test]
+    fn test_for_type_sets_correct_type() {
+        for ft in FractalType::all() {
+            let p = FractalParams::for_type(*ft);
+            assert_eq!(p.fractal_type, *ft);
+        }
+    }
+
+    #[test]
+    fn test_serde_roundtrip() {
+        for ft in FractalType::all() {
+            let p = FractalParams::for_type(*ft);
+            let json = serde_json::to_string(&p).unwrap();
+            let p2: FractalParams = serde_json::from_str(&json).unwrap();
+            assert_eq!(p.fractal_type, p2.fractal_type);
+            assert_eq!(p.power, p2.power);
+            assert_eq!(p.iterations, p2.iterations);
+        }
+    }
+
+    #[test]
+    fn test_fractal_type_repr() {
+        assert_eq!(FractalType::Mandelbulb as u32, 0);
+        assert_eq!(FractalType::Menger as u32, 1);
+        assert_eq!(FractalType::Julia3D as u32, 2);
+        assert_eq!(FractalType::Mandelbox as u32, 3);
+        assert_eq!(FractalType::Sierpinski as u32, 4);
+        assert_eq!(FractalType::Apollonian as u32, 5);
+    }
+}

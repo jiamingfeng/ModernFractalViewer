@@ -126,3 +126,139 @@ impl Camera {
         *self = Self::default();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EPS: f32 = 1e-5;
+
+    fn approx_eq(a: f32, b: f32) -> bool {
+        (a - b).abs() < EPS
+    }
+
+    #[test]
+    fn test_orbit_updates_position() {
+        let mut cam = Camera::default();
+        let orig_distance = cam.distance;
+        cam.orbit(0.5, 0.3);
+        // Distance from target should be preserved
+        let actual_dist = (cam.position - cam.target).length();
+        assert!(approx_eq(actual_dist, orig_distance));
+        // Position should have changed
+        assert!(!approx_eq(cam.position.z, 3.0) || !approx_eq(cam.position.x, 0.0));
+    }
+
+    #[test]
+    fn test_orbit_elevation_clamp() {
+        let mut cam = Camera::default();
+        // Try to orbit far past the pole
+        cam.orbit(0.0, 100.0);
+        let max_elev = std::f32::consts::FRAC_PI_2 - 0.01;
+        assert!(cam.elevation <= max_elev + EPS);
+
+        // Try the other direction
+        cam.orbit(0.0, -200.0);
+        let min_elev = -std::f32::consts::FRAC_PI_2 + 0.01;
+        assert!(cam.elevation >= min_elev - EPS);
+    }
+
+    #[test]
+    fn test_zoom_by_in() {
+        let mut cam = Camera::default();
+        let orig = cam.distance;
+        cam.zoom_by(0.5);
+        assert!(approx_eq(cam.distance, orig * 0.5));
+    }
+
+    #[test]
+    fn test_zoom_by_clamp_min() {
+        let mut cam = Camera::default();
+        cam.zoom_by(0.0001);
+        assert!(cam.distance >= 0.001);
+    }
+
+    #[test]
+    fn test_zoom_by_clamp_max() {
+        let mut cam = Camera::default();
+        cam.zoom_by(1000.0);
+        assert!(cam.distance <= 100.0);
+    }
+
+    #[test]
+    fn test_adaptive_near_clip_at_default() {
+        let cam = Camera::default();
+        let clip = cam.adaptive_near_clip();
+        assert!(approx_eq(clip, 3.0 * 0.001));
+    }
+
+    #[test]
+    fn test_adaptive_near_clip_zoomed_in() {
+        let mut cam = Camera::default();
+        cam.distance = 0.01;
+        let clip = cam.adaptive_near_clip();
+        assert!(approx_eq(clip, 0.01 * 0.001));
+    }
+
+    #[test]
+    fn test_adaptive_near_clip_zoomed_out() {
+        let mut cam = Camera::default();
+        cam.distance = 50.0;
+        let clip = cam.adaptive_near_clip();
+        // Should cap at DEFAULT_DISTANCE * 0.001
+        assert!(approx_eq(clip, DEFAULT_DISTANCE * 0.001));
+    }
+
+    #[test]
+    fn test_pan_moves_target() {
+        let mut cam = Camera::default();
+        let orig_target = cam.target;
+        cam.pan(Vec3::new(1.0, 0.0, 0.0));
+        assert_ne!(cam.target, orig_target);
+    }
+
+    #[test]
+    fn test_reset_restores_defaults() {
+        let mut cam = Camera::default();
+        cam.orbit(1.0, 0.5);
+        cam.zoom_by(0.1);
+        cam.pan(Vec3::new(5.0, 5.0, 5.0));
+        cam.reset();
+        let def = Camera::default();
+        assert!(approx_eq(cam.distance, def.distance));
+        assert!(approx_eq(cam.azimuth, def.azimuth));
+        assert!(approx_eq(cam.elevation, def.elevation));
+        assert_eq!(cam.target, def.target);
+    }
+
+    #[test]
+    fn test_view_matrix_not_degenerate() {
+        let cam = Camera::default();
+        let mat = cam.view_matrix();
+        assert!(mat.determinant().abs() > EPS);
+    }
+
+    #[test]
+    fn test_right_forward_up_orthogonal() {
+        let mut cam = Camera::default();
+        cam.orbit(0.3, 0.2);
+        let r = cam.right();
+        let f = cam.forward();
+        let u = cam.up();
+        assert!(r.dot(f).abs() < EPS);
+        assert!(r.dot(u).abs() < EPS);
+        assert!(f.dot(u).abs() < EPS);
+    }
+
+    #[test]
+    fn test_serde_roundtrip() {
+        let mut cam = Camera::default();
+        cam.orbit(0.5, 0.3);
+        cam.zoom_by(2.0);
+        let json = serde_json::to_string(&cam).unwrap();
+        let cam2: Camera = serde_json::from_str(&json).unwrap();
+        assert!(approx_eq(cam.distance, cam2.distance));
+        assert!(approx_eq(cam.azimuth, cam2.azimuth));
+        assert!(approx_eq(cam.elevation, cam2.elevation));
+    }
+}

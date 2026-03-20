@@ -14,3 +14,10 @@ glam.workspace = true
 log.workspace = true
 thiserror.workspace = true
 pollster.workspace = true
+
+[features]
+snapshot-tests = []
+
+[dev-dependencies]
+fractal-core.workspace = true
+pollster.workspace = true

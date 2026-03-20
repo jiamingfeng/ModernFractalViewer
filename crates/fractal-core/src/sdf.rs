@@ -201,3 +201,78 @@ pub const PALETTE_PRESETS: &[PalettePreset] = &[
         ],
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_palette_presets_count() {
+        assert_eq!(PALETTE_PRESETS.len(), 8);
+    }
+
+    #[test]
+    fn test_palette_presets_have_names() {
+        for preset in PALETTE_PRESETS {
+            assert!(!preset.name.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_palette_presets_colors_in_range() {
+        for preset in PALETTE_PRESETS {
+            for color in preset.colors {
+                for &channel in color {
+                    assert!(
+                        (0.0..=1.0).contains(&channel),
+                        "Preset '{}' has out-of-range color value: {}",
+                        preset.name,
+                        channel
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_palette_presets_min_colors() {
+        for preset in PALETTE_PRESETS {
+            assert!(
+                preset.colors.len() >= 2,
+                "Preset '{}' has fewer than 2 colors",
+                preset.name
+            );
+        }
+    }
+
+    #[test]
+    fn test_palette_presets_max_colors() {
+        for preset in PALETTE_PRESETS {
+            assert!(
+                preset.colors.len() <= 8,
+                "Preset '{}' has more than 8 colors",
+                preset.name
+            );
+        }
+    }
+
+    #[test]
+    fn test_serde_roundtrip_configs() {
+        let rm = RayMarchConfig::default();
+        let json = serde_json::to_string(&rm).unwrap();
+        let rm2: RayMarchConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(rm.max_steps, rm2.max_steps);
+        assert_eq!(rm.epsilon, rm2.epsilon);
+
+        let lc = LightingConfig::default();
+        let json = serde_json::to_string(&lc).unwrap();
+        let lc2: LightingConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(lc.ambient, lc2.ambient);
+
+        let cc = ColorConfig::default();
+        let json = serde_json::to_string(&cc).unwrap();
+        let cc2: ColorConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(cc.color_mode, cc2.color_mode);
+        assert_eq!(cc.palette_scale, cc2.palette_scale);
+    }
+}

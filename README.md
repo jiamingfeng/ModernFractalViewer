@@ -30,6 +30,8 @@ A cross-platform 3D fractal viewer using ray marching, built with Rust.
 | Reset camera | R | - |
 | Auto-rotate | Space | - |
 
+For a comprehensive feature reference, see the [User Guide](docs/USER_GUIDE.md).
+
 ## Building
 
 ### Prerequisites

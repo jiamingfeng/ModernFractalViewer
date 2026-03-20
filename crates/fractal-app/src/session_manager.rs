@@ -322,6 +322,15 @@ impl SessionManager {
         self.backend.list()
     }
 
+    /// Create a session manager with a custom directory (for testing).
+    #[cfg(test)]
+    pub fn new_with_dir(dir: std::path::PathBuf) -> Result<Self> {
+        let backend = FileSystemStorage::new(dir)?;
+        Ok(Self {
+            backend: Box::new(backend),
+        })
+    }
+
     /// List all saved sessions with metadata (newest first).
     /// Sessions that fail to parse are silently skipped.
     pub fn list_sessions(&self) -> Result<Vec<(String, SavedSession)>> {
@@ -337,7 +346,8 @@ impl SessionManager {
 }
 
 /// Convert days since Unix epoch to (year, month, day).
-fn days_to_ymd(days: u64) -> (u64, u64, u64) {
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn days_to_ymd(days: u64) -> (u64, u64, u64) {
     // Adapted from Howard Hinnant's civil_from_days algorithm
     let z = days + 719468;
     let era = z / 146097;
@@ -350,4 +360,118 @@ fn days_to_ymd(days: u64) -> (u64, u64, u64) {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     (y, m, d)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_id_format() {
+        let id = SessionManager::generate_id();
+        assert_eq!(id.len(), 15); // YYYYMMDD_HHMMSS
+        assert_eq!(id.as_bytes()[8], b'_');
+        // All other chars should be digits
+        for (i, c) in id.chars().enumerate() {
+            if i != 8 {
+                assert!(c.is_ascii_digit(), "char at {i} is not a digit: {c}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_timestamp_iso8601_format() {
+        let ts = SessionManager::timestamp_iso8601();
+        assert_eq!(ts.len(), 20); // YYYY-MM-DDTHH:MM:SSZ
+        assert!(ts.contains('T'));
+        assert!(ts.ends_with('Z'));
+    }
+
+    #[test]
+    fn test_days_to_ymd_epoch() {
+        let (y, m, d) = days_to_ymd(0);
+        assert_eq!((y, m, d), (1970, 1, 1));
+    }
+
+    #[test]
+    fn test_days_to_ymd_leap_year() {
+        // 2000-01-01 is day 10957 from epoch
+        let (y, m, d) = days_to_ymd(10957);
+        assert_eq!((y, m, d), (2000, 1, 1));
+    }
+
+    #[test]
+    fn test_days_to_ymd_known_date() {
+        // 2024-01-01 is day 19723 from epoch
+        let (y, m, d) = days_to_ymd(19723);
+        assert_eq!((y, m, d), (2024, 1, 1));
+    }
+
+    #[test]
+    fn test_filesystem_save_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = FileSystemStorage::new(dir.path().to_path_buf()).unwrap();
+        storage.save("test1", r#"{"hello":"world"}"#).unwrap();
+        let loaded = storage.load("test1").unwrap();
+        assert_eq!(loaded, r#"{"hello":"world"}"#);
+    }
+
+    #[test]
+    fn test_filesystem_delete() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = FileSystemStorage::new(dir.path().to_path_buf()).unwrap();
+        storage.save("test1", "data").unwrap();
+        storage.delete("test1").unwrap();
+        assert!(storage.load("test1").is_err());
+    }
+
+    #[test]
+    fn test_filesystem_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = FileSystemStorage::new(dir.path().to_path_buf()).unwrap();
+        storage.save("aaa", "1").unwrap();
+        storage.save("ccc", "2").unwrap();
+        storage.save("bbb", "3").unwrap();
+        let list = storage.list().unwrap();
+        assert_eq!(list.len(), 3);
+        // Should be sorted reverse-alphabetically
+        assert_eq!(list, vec!["ccc", "bbb", "aaa"]);
+    }
+
+    #[test]
+    fn test_filesystem_list_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = FileSystemStorage::new(dir.path().to_path_buf()).unwrap();
+        let list = storage.list().unwrap();
+        assert!(list.is_empty());
+    }
+
+    #[test]
+    fn test_session_manager_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = SessionManager::new_with_dir(dir.path().to_path_buf()).unwrap();
+        let mut session = fractal_core::SavedSession::default();
+        session.name = "Test Save".to_string();
+        session.fractal_type_name = "Mandelbulb".to_string();
+        let id = mgr.save(&session).unwrap();
+        let loaded = mgr.load(&id).unwrap();
+        assert_eq!(loaded.name, "Test Save");
+        assert_eq!(loaded.fractal_type_name, "Mandelbulb");
+        assert_eq!(loaded.version, "1");
+    }
+
+    #[test]
+    fn test_version_gated_loading() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = FileSystemStorage::new(dir.path().to_path_buf()).unwrap();
+
+        // Version 1 should load
+        storage.save("v1", r#"{"version":"1","name":"ok"}"#).unwrap();
+        let mgr = SessionManager::new_with_dir(dir.path().to_path_buf()).unwrap();
+        assert!(mgr.load("v1").is_ok());
+
+        // Unknown version should fail
+        storage.save("v99", r#"{"version":"99","name":"fail"}"#).unwrap();
+        assert!(mgr.load("v99").is_err());
+    }
 }
