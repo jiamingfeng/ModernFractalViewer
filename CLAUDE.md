@@ -36,6 +36,10 @@ cargo ndk -t arm64-v8a -o android/app/src/main/jniLibs build -p fractal-app --re
 ```
 
 CI enforces `-D warnings` (RUSTFLAGS), so the build fails on any warnings.
+CI runs unit tests on all PC platforms (Windows, macOS, Linux x64, Linux ARM64) and checks
+Android compilation via `.github/workflows/test.yml`. The release workflow (`release.yml`)
+also runs the full test suite before creating a release.
+Snapshot tests are excluded from CI (they require a GPU).
 When running local checks, do NOT set RUSTFLAGS manually — just use `cargo check --workspace`.
 
 Before pushing, verify cross-compilation for at least Windows (default) and Android:

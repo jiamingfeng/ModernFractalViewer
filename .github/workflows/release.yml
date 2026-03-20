@@ -30,9 +30,16 @@ permissions:
 
 jobs:
   # ─────────────────────────────────────────────
+  # Run full test suite before releasing
+  # ─────────────────────────────────────────────
+  test:
+    uses: ./.github/workflows/test.yml
+
+  # ─────────────────────────────────────────────
   # Create git tag and draft release
   # ─────────────────────────────────────────────
   create-release:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

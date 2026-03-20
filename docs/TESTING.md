@@ -29,8 +29,15 @@ GENERATE_GOLDEN=1 cargo test -p fractal-renderer --features snapshot-tests
 
 ### CI
 
-CI workflows (`.github/workflows/`) enforce `RUSTFLAGS="-D warnings"` so builds fail on any compiler warning. Currently CI only builds across platforms (Windows, macOS, Linux, Android, WebAssembly) — it does **not** run tests, because snapshot tests require a GPU. Unit tests should be run locally before pushing.
+CI runs unit tests on all PC platforms (Windows, macOS, Linux x64, Linux ARM64) via the
+`.github/workflows/test.yml` workflow using `cargo-nextest`. Test results are published as
+JUnit reports on each PR/push via `dorny/test-reporter`. The release workflow (`release.yml`)
+also runs the full test suite before creating a release.
 
+Android compilation is verified via `cargo check` (tests cannot run without a device).
+Snapshot tests are excluded from CI since runners have no GPU.
+
+CI enforces `RUSTFLAGS="-D warnings"` so builds fail on any compiler warning.
 When running local checks, do **not** set `RUSTFLAGS` manually — just use `cargo check --workspace`.
 
 ## Test Inventory
