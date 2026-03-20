@@ -7,8 +7,8 @@ use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
-use fractal_core::Camera;
-use fractal_renderer::{FractalPipeline, RenderContext};
+use fractal_core::{Camera, SavedSession};
+use fractal_renderer::{FractalPipeline, RenderContext, ThumbnailCapture};
 use fractal_ui::{FractalPanel, UiState};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, Touch, TouchPhase, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
@@ -16,6 +16,7 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::Window;
 
 use crate::input::InputState;
+use crate::session_manager::SessionManager;
 
 /// Main application state
 pub struct App {
@@ -35,6 +36,8 @@ pub struct App {
     /// On WASM, the initial inner_size() can be stale when the canvas hasn't
     /// been laid out yet, so we force a resize on the first RedrawRequested.
     needs_initial_configure: bool,
+    session_manager: Option<SessionManager>,
+    thumbnail_capture: ThumbnailCapture,
 }
 
 impl App {
@@ -67,7 +70,23 @@ impl App {
         // Initialize state
         let ui_state = UiState::default();
         let camera = Camera::default();
-        
+
+        // Session save/load
+        let session_manager = match SessionManager::new() {
+            Ok(mgr) => Some(mgr),
+            Err(e) => {
+                log::warn!("Session manager unavailable: {e}");
+                None
+            }
+        };
+
+        let thumbnail_capture = ThumbnailCapture::new(
+            &render_ctx.device,
+            render_ctx.format,
+            320,
+            180,
+        );
+
         Ok(Self {
             window,
             render_ctx,
@@ -82,6 +101,8 @@ impl App {
             last_frame: Instant::now(),
             vsync_prev: true,
             needs_initial_configure: true,
+            session_manager,
+            thumbnail_capture,
         })
     }
     
@@ -438,7 +459,229 @@ impl App {
         // Sync UI camera changes back to app camera
         // This picks up reset, view buttons, slider changes from the egui UI
         self.camera = self.ui_state.camera.clone();
-        
+
+        // Handle session save/load/delete requests from the UI
+        self.handle_session_requests();
+
         Ok(())
     }
+
+    fn handle_session_requests(&mut self) {
+        let Some(ref _session_manager) = self.session_manager else {
+            return;
+        };
+
+        // Refresh session list if needed
+        if self.ui_state.sessions_dirty {
+            self.ui_state.sessions_dirty = false;
+            self.refresh_session_slots();
+        }
+
+        // Handle save
+        if self.ui_state.pending_save {
+            self.ui_state.pending_save = false;
+            self.save_session();
+        }
+
+        // Handle load
+        if let Some(id) = self.ui_state.pending_load.take() {
+            self.load_session(&id);
+        }
+
+        // Handle delete
+        if let Some(id) = self.ui_state.pending_delete.take() {
+            if let Some(ref mgr) = self.session_manager {
+                if let Err(e) = mgr.delete(&id) {
+                    log::error!("Failed to delete session: {e}");
+                }
+            }
+            self.ui_state.sessions_dirty = true;
+        }
+    }
+
+    fn save_session(&mut self) {
+        // Capture thumbnail: render fractal at thumbnail resolution
+        let thumb_w = self.thumbnail_capture.width();
+        let thumb_h = self.thumbnail_capture.height();
+
+        // Temporarily set resolution to thumbnail size
+        self.pipeline.uniforms.update_resolution(thumb_w, thumb_h);
+        self.pipeline.update_uniforms(&self.render_ctx.queue);
+
+        // Render to offscreen texture + copy to staging buffer
+        let mut encoder = self.render_ctx.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("Thumbnail Encoder"),
+            },
+        );
+        self.pipeline.render(&mut encoder, self.thumbnail_capture.view());
+        self.thumbnail_capture.copy_to_buffer(&mut encoder);
+        self.render_ctx.queue.submit(std::iter::once(encoder.finish()));
+
+        // Read pixels back (blocking)
+        let pixels = self.thumbnail_capture.read_pixels(&self.render_ctx.device);
+
+        // Restore original resolution
+        let (width, height) = self.render_ctx.size();
+        self.pipeline.uniforms.update_resolution(width, height);
+        self.pipeline.update_uniforms(&self.render_ctx.queue);
+
+        // Encode as PNG
+        let thumbnail_base64 = encode_thumbnail_png(&pixels, thumb_w, thumb_h);
+
+        // Build session
+        let name = if self.ui_state.save_name.trim().is_empty() {
+            self.ui_state.fractal_params.fractal_type.name().to_string()
+        } else {
+            self.ui_state.save_name.trim().to_string()
+        };
+
+        let session = SavedSession {
+            version: "1".to_string(),
+            timestamp: SessionManager::timestamp_iso8601(),
+            name,
+            fractal_type_name: self.ui_state.fractal_params.fractal_type.name().to_string(),
+            thumbnail_base64,
+            thumbnail_width: thumb_w,
+            thumbnail_height: thumb_h,
+            fractal_params: self.ui_state.fractal_params,
+            ray_march_config: self.ui_state.ray_march_config,
+            lighting_config: self.ui_state.lighting_config,
+            color_config: self.ui_state.color_config,
+            camera: self.camera.clone(),
+        };
+
+        if let Some(ref mgr) = self.session_manager {
+            match mgr.save(&session) {
+                Ok(id) => {
+                    log::info!("Session saved as {id}");
+                    self.ui_state.save_name.clear();
+                }
+                Err(e) => log::error!("Failed to save session: {e}"),
+            }
+        }
+        self.ui_state.sessions_dirty = true;
+    }
+
+    fn load_session(&mut self, id: &str) {
+        let Some(ref mgr) = self.session_manager else {
+            return;
+        };
+        match mgr.load(id) {
+            Ok(session) => {
+                self.ui_state.fractal_params = session.fractal_params;
+                self.ui_state.ray_march_config = session.ray_march_config;
+                self.ui_state.lighting_config = session.lighting_config;
+                self.ui_state.color_config = session.color_config;
+                self.ui_state.camera = session.camera.clone();
+                self.camera = session.camera;
+                log::info!("Loaded session '{}'", session.name);
+            }
+            Err(e) => log::error!("Failed to load session {id}: {e}"),
+        }
+    }
+
+    fn refresh_session_slots(&mut self) {
+        let Some(ref mgr) = self.session_manager else {
+            return;
+        };
+        match mgr.list_sessions() {
+            Ok(sessions) => {
+                self.ui_state.session_slots = sessions
+                    .into_iter()
+                    .map(|(id, session)| {
+                        // Decode thumbnail from base64 and upload as egui texture
+                        let thumbnail = decode_thumbnail_to_egui(
+                            &self.egui_ctx,
+                            &id,
+                            &session.thumbnail_base64,
+                            session.thumbnail_width,
+                            session.thumbnail_height,
+                        );
+                        fractal_ui::SessionSlotDisplay {
+                            id,
+                            name: session.name,
+                            timestamp: session.timestamp,
+                            fractal_type_name: session.fractal_type_name,
+                            thumbnail,
+                        }
+                    })
+                    .collect();
+            }
+            Err(e) => log::error!("Failed to list sessions: {e}"),
+        }
+    }
+}
+
+/// Encode RGBA pixels as PNG and return as base64 string.
+#[cfg(not(target_arch = "wasm32"))]
+fn encode_thumbnail_png(pixels: &[u8], width: u32, height: u32) -> String {
+    use base64::Engine;
+    use image::{ImageBuffer, RgbaImage};
+
+    let img: RgbaImage = ImageBuffer::from_raw(width, height, pixels.to_vec())
+        .unwrap_or_else(|| ImageBuffer::new(width, height));
+
+    let mut png_bytes = Vec::new();
+    let mut cursor = std::io::Cursor::new(&mut png_bytes);
+    img.write_to(&mut cursor, image::ImageFormat::Png)
+        .unwrap_or_else(|e| log::error!("PNG encode failed: {e}"));
+
+    base64::engine::general_purpose::STANDARD.encode(&png_bytes)
+}
+
+/// Stub for WASM — PNG encoding not available (image crate is native-only).
+#[cfg(target_arch = "wasm32")]
+fn encode_thumbnail_png(_pixels: &[u8], _width: u32, _height: u32) -> String {
+    String::new()
+}
+
+/// Stub for WASM — image decoding not available.
+#[cfg(target_arch = "wasm32")]
+fn decode_thumbnail_to_egui(
+    _ctx: &egui::Context,
+    _id: &str,
+    _base64_data: &str,
+    _width: u32,
+    _height: u32,
+) -> Option<egui::TextureHandle> {
+    None
+}
+
+/// Decode a base64 PNG thumbnail and upload as an egui texture.
+#[cfg(not(target_arch = "wasm32"))]
+fn decode_thumbnail_to_egui(
+    ctx: &egui::Context,
+    id: &str,
+    base64_data: &str,
+    _width: u32,
+    _height: u32,
+) -> Option<egui::TextureHandle> {
+    use base64::Engine;
+
+    if base64_data.is_empty() {
+        return None;
+    }
+
+    let png_bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64_data)
+        .ok()?;
+
+    // Decode PNG to RGBA pixels
+    let img = image::load_from_memory_with_format(&png_bytes, image::ImageFormat::Png)
+        .ok()?
+        .into_rgba8();
+
+    let size = [img.width() as usize, img.height() as usize];
+    let pixels: Vec<egui::Color32> = img
+        .pixels()
+        .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+        .collect();
+
+    let color_image = egui::ColorImage { size, pixels };
+    Some(ctx.load_texture(
+        format!("thumb_{id}"),
+        color_image,
+        egui::TextureOptions::LINEAR,
+    ))
 }

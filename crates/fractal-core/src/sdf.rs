@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// Ray marching configuration
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RayMarchConfig {
     /// Maximum number of ray marching steps
     pub max_steps: u32,
@@ -40,6 +41,7 @@ impl Default for RayMarchConfig {
 
 /// Lighting configuration for rendering
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LightingConfig {
     /// Light direction (normalized)
     pub light_dir: [f32; 3],
@@ -67,6 +69,7 @@ impl Default for LightingConfig {
 
 /// Color configuration for fractal rendering
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ColorConfig {
     /// Base color RGB (used for solid mode)
     pub base_color: [f32; 3],
@@ -87,7 +90,6 @@ pub struct ColorConfig {
     /// Dither strength (0.0 = off, 1.0 = normal, up to 2.0)
     pub dither_strength: f32,
     /// Index of selected palette preset (for UI tracking)
-    #[serde(default)]
     pub palette_preset: usize,
 }
 

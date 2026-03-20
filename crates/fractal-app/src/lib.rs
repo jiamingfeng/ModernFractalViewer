@@ -4,6 +4,7 @@
 
 pub mod app;
 pub mod input;
+pub mod session_manager;
 
 // Android entry point
 #[cfg(target_os = "android")]

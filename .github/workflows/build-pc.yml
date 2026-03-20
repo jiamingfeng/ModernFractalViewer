@@ -1,4 +1,4 @@
-name: Build PC (Windows / macOS / Linux)
+name: Win/macOS/Linux64/LinuxARM64 Build
 
 on:
   push:

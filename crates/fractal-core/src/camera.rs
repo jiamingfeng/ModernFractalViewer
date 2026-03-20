@@ -5,8 +5,11 @@
 use glam::{Mat4, Vec3};
 use serde::{Deserialize, Serialize};
 
+const DEFAULT_DISTANCE: f32 = 3.0;
+
 /// Orbital camera for 3D fractal exploration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Camera {
     /// Camera position in world space
     pub position: Vec3,
@@ -38,7 +41,7 @@ impl Default for Camera {
             fov: 60.0_f32.to_radians(),
             near: 0.001,
             far: 100.0,
-            distance: 3.0,
+            distance: DEFAULT_DISTANCE,
             azimuth: 0.0,
             elevation: 0.0,
         }
@@ -78,7 +81,8 @@ impl Camera {
     /// Compute an adaptive near clip distance that scales with camera distance.
     /// Prevents the ray origin from starting inside the SDF surface when zoomed in.
     pub fn adaptive_near_clip(&self) -> f32 {
-        (self.distance * 0.001).max(0.00001)
+        let d = self.distance.min(DEFAULT_DISTANCE);
+        (d * 0.001).max(0.00001)
     }
 
     /// Pan the camera (move target)

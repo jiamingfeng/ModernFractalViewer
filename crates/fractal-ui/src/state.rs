@@ -3,6 +3,33 @@
 use fractal_core::{Camera, FractalParams, FractalType};
 use fractal_core::sdf::{ColorConfig, LightingConfig, RayMarchConfig};
 
+/// Display data for a saved session slot (populated by App, consumed by UI).
+#[derive(Clone)]
+pub struct SessionSlotDisplay {
+    /// Save ID (timestamp-based filename stem)
+    pub id: String,
+    /// User-provided name
+    pub name: String,
+    /// ISO 8601 timestamp
+    pub timestamp: String,
+    /// Human-readable fractal type
+    pub fractal_type_name: String,
+    /// Thumbnail texture (lazily loaded from base64 PNG)
+    pub thumbnail: Option<egui::TextureHandle>,
+}
+
+impl std::fmt::Debug for SessionSlotDisplay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionSlotDisplay")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("timestamp", &self.timestamp)
+            .field("fractal_type_name", &self.fractal_type_name)
+            .field("thumbnail", &self.thumbnail.as_ref().map(|_| "..."))
+            .finish()
+    }
+}
+
 /// Main UI state structure
 #[derive(Debug, Clone)]
 pub struct UiState {
@@ -26,6 +53,20 @@ pub struct UiState {
     pub rotation_speed: f32,
     /// Enable vsync
     pub vsync: bool,
+
+    // -- Session save/load state (transient, not saved) --
+    /// Name for the next save
+    pub save_name: String,
+    /// Request to save current session
+    pub pending_save: bool,
+    /// Request to load a session (save ID)
+    pub pending_load: Option<String>,
+    /// Request to delete a session (save ID)
+    pub pending_delete: Option<String>,
+    /// Available saved session slots (populated by App)
+    pub session_slots: Vec<SessionSlotDisplay>,
+    /// Whether the session slot list needs refreshing
+    pub sessions_dirty: bool,
 }
 
 impl Default for UiState {
@@ -41,6 +82,12 @@ impl Default for UiState {
             auto_rotate: false,
             rotation_speed: 0.5,
             vsync: true,
+            save_name: String::new(),
+            pending_save: false,
+            pending_load: None,
+            pending_delete: None,
+            session_slots: Vec::new(),
+            sessions_dirty: true,
         }
     }
 }

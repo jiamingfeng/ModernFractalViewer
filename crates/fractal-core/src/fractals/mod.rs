@@ -52,6 +52,7 @@ impl FractalType {
 
 /// Unified fractal parameters that can be sent to the GPU
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 pub struct FractalParams {
     /// Type of fractal to render
     pub fractal_type: FractalType,

@@ -3,10 +3,12 @@
 mod fractal_params;
 mod camera_controls;
 mod color_settings;
+mod session_panel;
 
 pub use fractal_params::FractalParamsPanel;
 pub use camera_controls::CameraControlsPanel;
 pub use color_settings::ColorSettingsPanel;
+pub use session_panel::SessionPanel;
 
 use crate::UiState;
 use egui::Context;
@@ -70,6 +72,9 @@ impl FractalPanel {
 
                         ui.add_space(10.0);
                         changed |= CameraControlsPanel::show(ui, state);
+
+                        ui.add_space(10.0);
+                        SessionPanel::show(ui, state);
 
                         ui.add_space(10.0);
                         ui.collapsing("Debug", |ui| {

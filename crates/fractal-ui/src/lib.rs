@@ -6,4 +6,4 @@ pub mod panels;
 pub mod state;
 
 pub use panels::FractalPanel;
-pub use state::UiState;
+pub use state::{SessionSlotDisplay, UiState};

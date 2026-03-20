@@ -1,4 +1,4 @@
-name: Build WebGPU (WASM)
+name: WebGPU (WASM) Build
 
 on:
   push:

@@ -6,6 +6,8 @@
 pub mod camera;
 pub mod fractals;
 pub mod sdf;
+pub mod session;
 
 pub use camera::Camera;
 pub use fractals::{FractalParams, FractalType};
+pub use session::SavedSession;
