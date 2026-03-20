@@ -23,6 +23,7 @@ impl FractalPanel {
     /// of the screen so the panel can be re-opened on any platform.
     pub fn show(ctx: &Context, state: &mut UiState) -> bool {
         let mut changed = false;
+        let toggle_btn_size = egui::vec2(24.0, 24.0);
 
         if state.show_panel {
             let screen_height = ctx.screen_rect().height();
@@ -42,14 +43,15 @@ impl FractalPanel {
                 .min_height(180.0)
                 .show(ctx, |ui| {
                     // ── Header row ────────────────────────────────────────────
-                    // The close button sits at the far-left; the heading fills
-                    // the rest and acts as the drag handle (labels don't consume
-                    // pointer events, so the window drag logic receives them).
+                    // The heading fills the left side and acts as the drag
+                    // handle; the close button is anchored to the right.
                     ui.horizontal(|ui| {
-                        if ui.button("✕").on_hover_text("Hide panel").clicked() {
-                            state.show_panel = false;
-                        }
                         ui.heading("🔷 Modern Fractal Viewer");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.add(egui::Button::new("X").min_size(toggle_btn_size)).clicked() {
+                                state.show_panel = false;
+                            }
+                        });
                     });
                     ui.separator();
 
@@ -89,10 +91,13 @@ impl FractalPanel {
             egui::Area::new(egui::Id::new("panel_open_btn"))
                 .anchor(egui::Align2::LEFT_TOP, [4.0, 4.0])
                 .order(egui::Order::Foreground)
+                .default_size(toggle_btn_size)
                 .show(ctx, |ui| {
-                    if ui.button("☰").on_hover_text("Show panel").clicked() {
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    if ui.add(egui::Button::new("☰").min_size(toggle_btn_size)).clicked() {
                         state.show_panel = true;
                     }
+                    });
                 });
         }
 
