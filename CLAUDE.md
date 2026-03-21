@@ -99,6 +99,130 @@ wgpu uses Naga to transpile WGSL to SPIR-V (Vulkan), MSL (Metal), HLSL (DirectX 
 1. Add variant to `FractalType` enum (`fractal-core/src/fractals/mod.rs`)
 2. Implement SDF function in WGSL (`raymarcher.wgsl`)
 3. Add UI controls in `fractal-ui/src/panels/fractal_params.rs`
+4. Add range definitions in `fractal-ui/src/app_settings.rs` and `default_app_settings.toml`
+5. Document the new type in the Features section below
+
+## Features
+
+### Fractal Types & SDF Rendering
+
+Six 3D fractal types rendered via GPU ray marching: Mandelbulb (power 1–16, default 8), Menger Sponge, Julia 3D (quaternion, configurable C vector), Mandelbox (box folding + spherical inversion), Sierpinski Tetrahedron, and Apollonian Gasket. Each has a dedicated SDF function in the WGSL shader with per-type configurable parameters.
+
+- **Files**: `fractal-core/src/fractals/mod.rs` (FractalType enum, FractalParams struct), `fractal-renderer/shaders/raymarcher.wgsl` (SDF implementations, ~650 lines), `fractal-ui/src/panels/fractal_params.rs` (per-type UI controls)
+- **Data flow**: UI → `FractalParams` → `Uniforms.update_fractal()` → GPU uniform buffer → WGSL `sdf()` function dispatches by `fractal_type` field
+- **Adding a type**: Add enum variant → implement SDF in WGSL → add UI panel → add range config → document
+
+### Deep Zoom (Double-Single Arithmetic)
+
+Emulates f64 precision (~14 decimal digits) using pairs of f32 values (`hi + lo`), enabling zoom to ~10^12 magnification. Uses Knuth's TwoSum for addition and Veltkamp's method for multiplication.
+
+- **Files**: `fractal-renderer/shaders/raymarcher.wgsl` (lines ~122–158, `DS` struct and arithmetic functions)
+- **Note**: Only affects camera/ray generation precision; SDF evaluation uses standard f32
+
+### Camera System
+
+Orbital camera with azimuth/elevation/distance. Supports mouse orbit (left drag), pan (right drag), scroll zoom (logarithmic), touch gestures (single-finger orbit, two-finger pinch-zoom and pan), keyboard shortcuts (R=reset, Space=auto-rotate, Esc=toggle panel), and preset views (Top, Front).
+
+- **Files**: `fractal-core/src/camera.rs` (Camera struct, orbital math, view/projection matrices), `fractal-app/src/app.rs` (event handling: `handle_mouse_move`, `handle_scroll`, `handle_touch`), `fractal-app/src/input.rs` (InputState, TouchPoint, pinch distance math), `fractal-ui/src/panels/camera_controls.rs` (FOV/zoom sliders, preset buttons)
+- **Data flow**: Input events → Camera.orbit()/zoom_by()/pan() → Camera.update_position() → pushed to UiState each frame → Uniforms.update_camera() → GPU
+- **Serialization**: Camera uses `#[serde(alias = "zoom")]` on `distance` field for backward compatibility with old saves
+
+### Color & Palette System
+
+Five color modes (Solid, Orbit Trap, Iteration, Normal, Combined) with 8 built-in palette presets (Inferno, Ocean, Sunset, Magma, Viridis, Classic, Fire, Ice). Custom palettes support up to 8 color stops with live color picker editing. Catmull-Rom interpolation for smooth gradients. Triangular dithering eliminates 8-bit color banding.
+
+- **Files**: `fractal-core/src/sdf.rs` (ColorConfig struct, PALETTE_PRESETS array), `fractal-ui/src/panels/color_settings.rs` (palette editor, color mode selector, dither slider), `fractal-renderer/shaders/raymarcher.wgsl` (palette sampling via Catmull-Rom, dithering)
+- **Data flow**: UI → ColorConfig (palette_colors array, color_mode, palette_scale/offset) → Uniforms.update_color() → GPU palette lookup per pixel
+- **Config**: palette_scale (0.1–10.0 log), palette_offset (0–1), dither_strength (0–2), max 8 color stops
+
+### Lighting & Ambient Occlusion
+
+Blinn-Phong lighting with ambient, diffuse, and specular components. Soft ambient occlusion via multi-step SDF sampling along the surface normal. Configurable AO steps (0–16) and intensity.
+
+- **Files**: `fractal-core/src/sdf.rs` (LightingConfig struct), `fractal-ui/src/panels/color_settings.rs` (lighting sliders), `fractal-renderer/shaders/raymarcher.wgsl` (lighting calculation, AO loop)
+- **Data flow**: UI → LightingConfig → Uniforms.update_lighting() → GPU
+- **Parameters**: ambient (0–1), diffuse (0–1), specular (0–1), shininess (1–128), light direction [0.577, 0.577, 0.577]
+
+### Rendering Pipeline & Anti-Aliasing
+
+Single fullscreen ray marching pass using a 3-vertex triangle (no vertex buffer). wgpu with Naga transpiler converts WGSL to native GPU shaders at runtime. Supersampling anti-aliasing at 1x (default), 2x (diagonal), or 4x (RGSS pattern).
+
+- **Files**: `fractal-renderer/src/pipeline.rs` (FractalPipeline, shader compilation, render pass), `fractal-renderer/src/context.rs` (wgpu device/queue/surface setup), `fractal-renderer/shaders/raymarcher.wgsl` (vertex + fragment shaders)
+- **Data flow**: App.render() → get_current_texture() → create encoder → pipeline.render() (clear BLACK + draw 3 vertices) → egui overlay pass (LoadOp::Load) → submit + present
+- **Configuration**: RayMarchConfig (max_steps, epsilon, max_distance, ao_steps, normal_epsilon, sample_count)
+
+### Uniform Buffer Layout
+
+512-byte `#[repr(C)]` struct sent to GPU each frame. No `vec3` fields (WGSL aligns vec3 to 16 bytes). Explicit `_padN` fields ensure byte-perfect alignment between Rust and WGSL. Palette stored as 8 `[f32; 4]` slots.
+
+- **Files**: `fractal-renderer/src/uniforms.rs` (Uniforms struct with byte offset comments, update methods), `fractal-renderer/shaders/raymarcher.wgsl` (matching WGSL struct at binding 0, group 0)
+- **Key rule**: When adding new uniform fields, update both the Rust struct (with padding) AND the WGSL struct. Verify 512-byte size (compile-time assertion in tests).
+
+### Session Save/Load
+
+Saves complete fractal state as JSON with optional 320x180 PNG thumbnail (base64-encoded). Platform-aware storage: filesystem on native/Android, localStorage on WASM. Confirmation dialogs for overwrite and delete. Reserved `__` prefix IDs are system-internal (read-only in UI).
+
+- **Files**: `fractal-core/src/session.rs` (SavedSession struct), `fractal-app/src/session_manager.rs` (SessionManager, StorageBackend trait, FileSystemStorage, LocalStorageBackend), `fractal-ui/src/panels/session_panel.rs` (UI with thumbnail preview, Load/Save/Delete buttons, confirmation dialogs), `fractal-renderer/src/thumbnail.rs` (offscreen render + GPU→CPU copy)
+- **Data flow**: Save: UiState + Camera → SavedSession → JSON → StorageBackend.save(). Load: StorageBackend.load() → JSON → SavedSession → restore into UiState + Camera
+- **Backward compat**: All nested structs use `#[serde(default)]`. SavedSession has `version: "1"` for future schema migrations.
+
+### Splash Screen
+
+Displays a branded loading screen during startup: background image (800x450), app name, version+commit, loading status, app icon + copyright. Window starts at splash resolution, maximizes after splash ends. Early black clear frame eliminates OS white flash. Minimum display time configurable via `SPLASH_MIN_DURATION_SECS` constant (default 2s).
+
+- **Files**: `fractal-app/src/app.rs` (SplashState struct, render_splash_frame(), splash lifecycle in render()), `fractal-app/assets/splash.png` (background image), `fractal-app/assets/icon.png` (corner icon)
+- **Lifecycle**: App::new() → early black clear → load splash textures → render splash frames for SPLASH_MIN_DURATION_SECS → set_maximized(true) → normal fractal rendering
+- **Platform**: Native only (splash textures `None` on WASM; WASM uses HTML loading indicator)
+
+### Data-Driven Settings (AppSettings)
+
+All slider/drag value min/max/speed/decimals are defined in `AppSettings` struct and persisted as TOML. Includes app behavior flags (e.g., `auto_load_last_session`). Editable via Debug → Control Settings panel or by hand-editing `settings.toml`.
+
+- **Files**: `fractal-ui/src/app_settings.rs` (AppSettings struct hierarchy: FloatRange, IntRange, per-fractal ranges, camera/rendering/lighting/color/debug ranges), `fractal-ui/src/default_app_settings.toml` (commented defaults, embedded at compile time), `fractal-app/src/config_manager.rs` (load_settings/save_settings for native + WASM), `fractal-ui/src/panels/control_settings_panel.rs` (editor UI)
+- **Data flow**: Startup: config_manager.load_settings() → ui_state.settings. UI changes: set settings_dirty → save_settings_if_dirty() writes TOML. Panels read settings for slider ranges.
+- **File location**: Native: `{data_dir}/ModernFractalViewer/settings.toml`. WASM: localStorage key `fractal_settings`.
+
+### Hot-Reload
+
+Feature-gated (`--features hot-reload`). Polls shader file and config TOML every 500ms for changes. On shader change: recompiles WGSL → rebuilds render pipeline → swaps atomically. On config change: re-parses TOML → updates AppSettings. Compile errors logged; old shader/config continues.
+
+- **Files**: `fractal-app/src/hot_reload.rs` (HotReloader struct, HotReloadEvent enum, file mtime polling), `fractal-renderer/src/pipeline.rs` (reload_shader() method, shader_path() resolver, feature-gated disk loading in resolve_shader_source())
+- **Data flow**: HotReloader.poll() → ShaderChanged → read file → pipeline.reload_shader() → new RenderPipeline. ConfigChanged → read TOML → toml::from_str → update ui_state.settings.
+- **Error handling**: Uses device.push_error_scope() to catch shader compile errors without panicking
+
+### Last Session Auto-Save/Load
+
+Auto-saves current state to reserved `__last_session` slot on app exit (without thumbnail for speed). Auto-loads on next launch if `settings.auto_load_last_session` is true (default: false). The slot appears in the session list as read-only (Load button only, no Save/Delete).
+
+- **Files**: `fractal-app/src/app.rs` (save_last_session() called on CloseRequested, auto-load in App::new()), `fractal-ui/src/panels/session_panel.rs` (hides Save/Delete for `__` prefix IDs)
+- **Data flow**: Exit: build SavedSession from current state → session_manager.save_overwrite("__last_session"). Launch: load("__last_session") → restore params/camera.
+
+### Version Tracking
+
+Build-time capture of git tag and commit hash via `build.rs`. Displayed in splash screen, debug overlay, and Debug section of the control panel.
+
+- **Files**: `fractal-app/build.rs` (git describe + rev-parse → cargo:rustc-env), `fractal-app/src/app.rs` (formats `env!("APP_VERSION")` and `env!("APP_COMMIT")` into ui_state.version_info)
+- **Rebuild trigger**: `cargo:rerun-if-changed=.git/HEAD` and `.git/refs/`
+
+### Input Handling
+
+Mouse, touch, and keyboard input with egui priority (egui consumes events first, remaining events go to camera). Touch supports single-finger orbit, two-finger pinch-zoom, and two-finger pan with midpoint tracking.
+
+- **Files**: `fractal-app/src/input.rs` (InputState struct, TouchPoint, pinch_distance/midpoint helpers), `fractal-app/src/app.rs` (handle_window_event dispatches to handle_keyboard/mouse/touch)
+- **Key bindings**: Esc (toggle panel), R (reset camera), Space (toggle auto-rotate)
+
+### Debug Overlay
+
+Toggleable overlay (top-right) showing FPS, version info, camera position, and zoom level. Controlled by `show_debug` checkbox in Debug section.
+
+- **Files**: `fractal-app/src/app.rs` (debug egui::Window in render()), `fractal-ui/src/panels/mod.rs` (Debug collapsing section with checkboxes for debug, VSync, auto-rotate)
+
+### Cross-Platform Storage
+
+Trait-based storage abstraction (`StorageBackend`) with platform-specific implementations. Sessions and config share the same data directory pattern but use different subdirectories/files.
+
+- **Files**: `fractal-app/src/session_manager.rs` (StorageBackend trait, FileSystemStorage for native, LocalStorageBackend for WASM), `fractal-app/src/config_manager.rs` (settings TOML I/O, WASM localStorage)
+- **Paths**: Native: `{dirs::data_dir()}/ModernFractalViewer/` (saves/ for sessions, settings.toml for config). Android: `{internal_data_path}/` (passed via _data_dir_override). WASM: localStorage keys `fractal_save_*` and `fractal_settings`.
 
 ## Testing Guidelines
 
@@ -116,6 +240,7 @@ wgpu uses Naga to transpile WGSL to SPIR-V (Vulkan), MSL (Metal), HLSL (DirectX 
 - **wgpu swapchain textures are uninitialized**: Each swapchain buffer may contain arbitrary data (often white) when first acquired. Always issue a `LoadOp::Clear` on every frame until you are sure all swapchain buffers have been written at least once. The number of buffers depends on `desired_maximum_frame_latency` and the platform.
 - **Splash/loading screen duration should be time-based**: Frame-count-based splash dismissal (e.g., "show for 2 frames") results in sub-millisecond visibility at high FPS. Use `Instant::elapsed()` with a minimum duration (e.g., 1 second) instead.
 - **Early black clear eliminates OS white flash**: On Windows, the OS paints a white background on new windows before any GPU rendering. To eliminate this, render a `LoadOp::Clear(BLACK)` frame immediately after `RenderContext::new()` inside `App::new()`, before any other initialization (pipeline, egui, etc.). Also start the window at splash size (not maximized) and only maximize after the splash phase ends.
+- **Feature documentation**: Every new feature must be documented in the `## Features` section of this file. Include: brief description, key files, data flow, and platform notes. This ensures new contributors can understand and modify any feature without reading every source file.
 
 ## Key Technical Details
 
