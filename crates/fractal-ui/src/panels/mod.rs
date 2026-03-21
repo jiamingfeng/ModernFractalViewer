@@ -44,6 +44,8 @@ impl FractalPanel {
                 .default_width(280.0)
                 .default_height(screen_height)
                 .min_height(180.0)
+                // Semi-transparent panel background
+                .frame(egui::Frame::window(&ctx.style()).fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 220)))
                 .show(ctx, |ui| {
                     // ── Header row ────────────────────────────────────────────
                     // The heading fills the left side and acts as the drag

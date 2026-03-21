@@ -454,12 +454,12 @@ impl App {
     fn draw_axes_gizmo(ctx: &egui::Context) {
         let screen = ctx.screen_rect();
         let margin = 50.0;
-        let center = egui::pos2(screen.left() + margin, screen.bottom() - margin);
+        let center = egui::pos2(screen.right() - margin, screen.bottom() - margin);
         let axis_len = 30.0;
 
         egui::Area::new(egui::Id::new("axes_gizmo"))
             .fixed_pos(egui::pos2(0.0, 0.0))
-            .order(egui::Order::Foreground)
+            .order(egui::Order::Background)
             .interactable(false)
             .show(ctx, |ui| {
                 let painter = ui.painter();
@@ -493,10 +493,10 @@ impl App {
         let center = egui::pos2(screen.center().x, screen.center().y);
         let radius = 80.0_f32;
 
-        // Use a foreground area for the gizmo
+        // Light gizmo draws behind the UI panel
         egui::Area::new(egui::Id::new("light_gizmo"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .order(egui::Order::Foreground)
+            .order(egui::Order::Background)
             .show(ctx, |ui| {
                 let painter = ui.painter();
 

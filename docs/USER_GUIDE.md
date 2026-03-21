@@ -49,6 +49,7 @@ Install the APK built with `cargo-ndk`. The app launches fullscreen; tap the ham
 | **ESC** | Toggle the control panel |
 | **R** | Reset camera to default position |
 | **Space** | Toggle auto-rotate mode |
+| **L** + drag | Rotate the light direction (shows gizmo while held) |
 
 ---
 
@@ -214,12 +215,45 @@ Click the color swatch to pick a custom background color (default: very dark blu
 
 ### Lighting
 
+Two lighting models are available, selectable via the **Model** dropdown:
+
+#### Blinn-Phong (default)
+
+The classic real-time lighting model with separate diffuse and specular controls.
+
 | Control | Range | Default | Effect |
 |---------|-------|---------|--------|
 | **Ambient Light** | 0.0 &ndash; 1.0 | 0.1 | Base illumination level. Higher values wash out shadows. |
 | **Direct Light** | 0.0 &ndash; 1.0 | 0.8 | Intensity of the directional light source. |
-| **Reflection** | 0.0 &ndash; 1.0 | 0.3 | Specular highlight intensity. Higher values make surfaces look shinier. |
-| **Gloss** | 1.0 &ndash; 128.0 | 32.0 | Specular exponent. Higher values create tighter, more focused highlights. |
+| **Reflection** | 0.0 &ndash; 1.0 | 0.3 | Specular highlight intensity. |
+| **Gloss** | 1.0 &ndash; 128.0 | 32.0 | Specular exponent. Higher = tighter highlights. |
+
+#### PBR (GGX)
+
+Physically-based rendering using the Cook-Torrance GGX microfacet BRDF (similar to glTF 2.0 / Unreal Engine 5). Uses a metallic-roughness workflow.
+
+| Control | Range | Default | Effect |
+|---------|-------|---------|--------|
+| **Ambient Light** | 0.0 &ndash; 1.0 | 0.1 | Base illumination level. |
+| **Roughness** | 0.0 &ndash; 1.0 | 0.5 | Surface roughness. 0 = mirror-smooth, 1 = fully rough/diffuse. |
+| **Metallic** | 0.0 &ndash; 1.0 | 0.0 | Metalness. 0 = dielectric (plastic), 1 = metal (reflects surface color). |
+| **Light Intensity** | 0.0 &ndash; 5.0 | 1.5 | Brightness of the direct light. |
+
+#### Shared Controls (both models)
+
+| Control | Range | Default | Effect |
+|---------|-------|---------|--------|
+| **Shadow Softness** | 1 &ndash; 64 | 8 | Controls penumbra width. Higher = softer shadows. Lower = harder shadows. |
+| **Light Dir** (x, y, z) | &ndash; | (0.577, 0.577, 0.577) | Editable light direction vector (auto-normalized). |
+
+#### Interactive Light Direction
+
+Hold **L** and drag the mouse to rotate the light direction on a unit sphere. A gizmo overlay appears showing:
+- **Yellow arrow**: Current light direction
+- **RGB axes**: X (red), Y (green), Z (blue) reference axes
+- **Hemisphere**: Visual boundary of the light sphere
+
+A **coordinate axes gizmo** (XYZ) is always visible in the bottom-right corner for orientation reference.
 
 ### Noise Smoothing
 

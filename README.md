@@ -18,6 +18,7 @@ A cross-platform 3D fractal viewer using ray marching, built with Rust.
 - **Interactive UI**: egui-based parameter tweaking with live preview
 - **Cross-Platform**: Windows, macOS, Linux, Android, and WebAssembly
 - **Deep Zoom Support**: Double-single precision emulation for zoom levels up to 10^12
+- **Switchable Lighting**: Blinn-Phong and PBR (Cook-Torrance GGX) with interactive light direction control
 
 ## Controls
 
@@ -26,6 +27,7 @@ A cross-platform 3D fractal viewer using ray marching, built with Rust.
 | Orbit camera | Left click + drag | Single finger drag |
 | Pan camera | Right click + drag | Two finger drag |
 | Zoom | Scroll wheel | Pinch |
+| Light direction | L + drag | - |
 | Toggle UI | ESC | - |
 | Reset camera | R | - |
 | Auto-rotate | Space | - |
