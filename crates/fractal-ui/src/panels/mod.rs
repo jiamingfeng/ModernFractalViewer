@@ -83,6 +83,7 @@ impl FractalPanel {
                                 ui.label(&state.version_info);
                             }
                             ui.checkbox(&mut state.show_debug, "Show debug info");
+                            ui.checkbox(&mut state.show_logs, "Show log window");
                             ui.checkbox(&mut state.vsync, "VSync");
                             ui.checkbox(&mut state.auto_rotate, "Auto-rotate");
                             if state.auto_rotate {

@@ -7,6 +7,7 @@ pub mod config_manager;
 #[cfg(feature = "hot-reload")]
 pub mod hot_reload;
 pub mod input;
+pub mod log_capture;
 pub mod session_manager;
 
 // Android entry point
@@ -25,9 +26,7 @@ fn android_main(android_app: AndroidApp) {
 
     use app::App;
 
-    android_logger::init_once(
-        android_logger::Config::default().with_max_level(log::LevelFilter::Info),
-    );
+    let log_entries = crate::log_capture::init(log::LevelFilter::Info);
 
     log::info!("Starting Fractal Viewer (Android)");
 
@@ -39,6 +38,7 @@ fn android_main(android_app: AndroidApp) {
         app: Option<App>,
         window: Option<Arc<Window>>,
         data_dir: Option<std::path::PathBuf>,
+        log_entries: crate::log_capture::LogBuffer,
     }
 
     impl ApplicationHandler for AndroidAppHandler {
@@ -54,7 +54,7 @@ fn android_main(android_app: AndroidApp) {
                 );
                 self.window = Some(window.clone());
 
-                match pollster::block_on(App::new(window, self.data_dir.clone())) {
+                match pollster::block_on(App::new(window, self.data_dir.clone(), self.log_entries.clone())) {
                     Ok(app) => {
                         log::info!("Application initialized successfully (Android)");
                         self.app = Some(app);
@@ -95,6 +95,7 @@ fn android_main(android_app: AndroidApp) {
         app: None,
         window: None,
         data_dir,
+        log_entries,
     };
     event_loop
         .run_app(&mut handler)

@@ -29,15 +29,18 @@ struct AppHandler {
     app: Option<App>,
     /// Window reference needed for async initialization
     window: Option<Arc<Window>>,
+    /// Shared log buffer for in-app log window
+    log_entries: fractal_app::log_capture::LogBuffer,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl AppHandler {
-    fn new(window_attrs: winit::window::WindowAttributes) -> Self {
+    fn new(window_attrs: winit::window::WindowAttributes, log_entries: fractal_app::log_capture::LogBuffer) -> Self {
         Self {
             window_attrs,
             app: None,
             window: None,
+            log_entries,
         }
     }
 }
@@ -58,7 +61,7 @@ impl ApplicationHandler for AppHandler {
             // On native, we use pollster to block on the async initialization
             #[cfg(not(target_arch = "wasm32"))]
             {
-                match pollster::block_on(App::new(window, None)) {
+                match pollster::block_on(App::new(window, None, self.log_entries.clone())) {
                     Ok(app) => {
                         log::info!("Application initialized successfully");
                         self.app = Some(app);
@@ -92,8 +95,8 @@ impl ApplicationHandler for AppHandler {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
-    // Initialize logging
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // Initialize logging with in-app capture
+    let log_entries = fractal_app::log_capture::init(log::LevelFilter::Info);
 
     log::info!("Starting Modern Fractal Viewer");
 
@@ -113,7 +116,7 @@ fn main() {
     }
 
     // Create and run the application handler
-    let mut handler = AppHandler::new(window_attrs);
+    let mut handler = AppHandler::new(window_attrs, log_entries);
     event_loop
         .run_app(&mut handler)
         .expect("Event loop error");
@@ -126,7 +129,7 @@ fn main() {
 
     // WASM entry point
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-    console_log::init_with_level(log::Level::Info).expect("Failed to init logger");
+    let log_entries = fractal_app::log_capture::init(log::LevelFilter::Info);
 
     log::info!("Starting Fractal Viewer (WASM)");
 
@@ -137,6 +140,7 @@ fn main() {
         app: Rc<RefCell<Option<App>>>,
         window: Option<Arc<Window>>,
         pending_init: Rc<RefCell<bool>>,
+        log_entries: fractal_app::log_capture::LogBuffer,
     }
 
     impl ApplicationHandler for WasmAppHandler {
@@ -154,8 +158,9 @@ fn main() {
                     *self.pending_init.borrow_mut() = true;
                     let app_ref = self.app.clone();
                     let window_for_redraw = window.clone();
+                    let log_buf = self.log_entries.clone();
                     wasm_bindgen_futures::spawn_local(async move {
-                        match App::new(window, None).await {
+                        match App::new(window, None, log_buf).await {
                             Ok(app) => {
                                 log::info!("Application initialized successfully (WASM)");
                                 *app_ref.borrow_mut() = Some(app);
@@ -239,6 +244,7 @@ fn main() {
         app: Rc::new(RefCell::new(None)),
         window: None,
         pending_init: Rc::new(RefCell::new(false)),
+        log_entries,
     };
     event_loop
         .run_app(&mut handler)

@@ -81,6 +81,16 @@ pub struct UiState {
     pub settings_dirty: bool,
     /// Request to open the config file in the OS default editor
     pub open_config_requested: bool,
+    /// Show the in-app log window
+    pub show_logs: bool,
+    /// Log filter: free-text search (case-insensitive)
+    pub log_filter_text: String,
+    /// Log filter: show INFO level
+    pub log_show_info: bool,
+    /// Log filter: show WARN level
+    pub log_show_warn: bool,
+    /// Log filter: show ERROR level
+    pub log_show_error: bool,
 }
 
 impl Default for UiState {
@@ -108,6 +118,11 @@ impl Default for UiState {
             settings: AppSettings::default(),
             settings_dirty: false,
             open_config_requested: false,
+            show_logs: false,
+            log_filter_text: String::new(),
+            log_show_info: true,
+            log_show_warn: true,
+            log_show_error: true,
         }
     }
 }

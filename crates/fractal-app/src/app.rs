@@ -62,12 +62,15 @@ pub struct App {
     /// Hot-reload file watcher (only present with `hot-reload` feature)
     #[cfg(feature = "hot-reload")]
     hot_reloader: Option<crate::hot_reload::HotReloader>,
+    /// Shared log buffer for in-app log window
+    log_entries: crate::log_capture::LogBuffer,
 }
 
 impl App {
     pub async fn new(
         window: Arc<Window>,
         _data_dir_override: Option<std::path::PathBuf>,
+        log_entries: crate::log_capture::LogBuffer,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         // Initialize wgpu render context
         let render_ctx = RenderContext::new(window.clone()).await?;
@@ -280,6 +283,7 @@ impl App {
             rendered_frames: 0,
             #[cfg(feature = "hot-reload")]
             hot_reloader,
+            log_entries,
         })
     }
     
@@ -632,6 +636,68 @@ impl App {
                                     self.camera.position.y,
                                     self.camera.position.z));
                                 ui.label(format!("Zoom: {:.4}x", 1.0 / self.camera.distance));
+                            });
+                    }
+
+                    // Log window
+                    if self.ui_state.show_logs {
+                        egui::Window::new("Logs")
+                            .default_size([600.0, 350.0])
+                            .resizable(true)
+                            .show(ctx, |ui| {
+                                // Filter bar
+                                ui.horizontal(|ui| {
+                                    ui.label("Filter:");
+                                    ui.text_edit_singleline(&mut self.ui_state.log_filter_text);
+                                    if ui.button("Clear").clicked() {
+                                        if let Ok(mut buf) = self.log_entries.lock() {
+                                            buf.clear();
+                                        }
+                                    }
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.toggle_value(&mut self.ui_state.log_show_info, "INFO");
+                                    ui.toggle_value(&mut self.ui_state.log_show_warn, "WARN");
+                                    ui.toggle_value(&mut self.ui_state.log_show_error, "ERROR");
+                                });
+                                ui.separator();
+
+                                // Log entries
+                                let filter_text = self.ui_state.log_filter_text.to_lowercase();
+                                egui::ScrollArea::vertical()
+                                    .stick_to_bottom(true)
+                                    .show(ui, |ui| {
+                                        if let Ok(entries) = self.log_entries.lock() {
+                                            for entry in entries.iter() {
+                                                // Level filter
+                                                let show = match entry.level {
+                                                    log::Level::Error => self.ui_state.log_show_error,
+                                                    log::Level::Warn => self.ui_state.log_show_warn,
+                                                    log::Level::Info => self.ui_state.log_show_info,
+                                                    _ => false,
+                                                };
+                                                if !show {
+                                                    continue;
+                                                }
+
+                                                let formatted = entry.formatted();
+
+                                                // Text filter
+                                                if !filter_text.is_empty()
+                                                    && !formatted.to_lowercase().contains(&filter_text)
+                                                {
+                                                    continue;
+                                                }
+
+                                                let color = match entry.level {
+                                                    log::Level::Error => egui::Color32::from_rgb(255, 80, 80),
+                                                    log::Level::Warn => egui::Color32::from_rgb(255, 200, 50),
+                                                    _ => egui::Color32::from_gray(200),
+                                                };
+                                                ui.colored_label(color, &formatted);
+                                            }
+                                        }
+                                    });
                             });
                     }
                 });
@@ -1018,34 +1084,38 @@ impl App {
     /// Save the current session. If `overwrite_id` is `Some`, overwrites that slot;
     /// otherwise creates a new slot.
     fn save_session(&mut self, overwrite_id: Option<&str>) {
-        // Capture thumbnail: render fractal at thumbnail resolution
-        let thumb_w = self.thumbnail_capture.width();
-        let thumb_h = self.thumbnail_capture.height();
+        // Capture thumbnail (native only — WASM can't do blocking GPU readback)
+        #[cfg(not(target_arch = "wasm32"))]
+        let (thumbnail_base64, thumb_w, thumb_h) = {
+            let tw = self.thumbnail_capture.width();
+            let th = self.thumbnail_capture.height();
 
-        // Temporarily set resolution to thumbnail size
-        self.pipeline.uniforms.update_resolution(thumb_w, thumb_h);
-        self.pipeline.update_uniforms(&self.render_ctx.queue);
+            // Temporarily set resolution to thumbnail size
+            self.pipeline.uniforms.update_resolution(tw, th);
+            self.pipeline.update_uniforms(&self.render_ctx.queue);
 
-        // Render to offscreen texture + copy to staging buffer
-        let mut encoder = self.render_ctx.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
-                label: Some("Thumbnail Encoder"),
-            },
-        );
-        self.pipeline.render(&mut encoder, self.thumbnail_capture.view());
-        self.thumbnail_capture.copy_to_buffer(&mut encoder);
-        self.render_ctx.queue.submit(std::iter::once(encoder.finish()));
+            // Render to offscreen texture + copy to staging buffer
+            let mut encoder = self.render_ctx.device.create_command_encoder(
+                &wgpu::CommandEncoderDescriptor {
+                    label: Some("Thumbnail Encoder"),
+                },
+            );
+            self.pipeline.render(&mut encoder, self.thumbnail_capture.view());
+            self.thumbnail_capture.copy_to_buffer(&mut encoder);
+            self.render_ctx.queue.submit(std::iter::once(encoder.finish()));
 
-        // Read pixels back (blocking)
-        let pixels = self.thumbnail_capture.read_pixels(&self.render_ctx.device);
+            // Read pixels back (blocking — safe on native, would deadlock on WASM)
+            let pixels = self.thumbnail_capture.read_pixels(&self.render_ctx.device);
 
-        // Restore original resolution
-        let (width, height) = self.render_ctx.size();
-        self.pipeline.uniforms.update_resolution(width, height);
-        self.pipeline.update_uniforms(&self.render_ctx.queue);
+            // Restore original resolution
+            let (width, height) = self.render_ctx.size();
+            self.pipeline.uniforms.update_resolution(width, height);
+            self.pipeline.update_uniforms(&self.render_ctx.queue);
 
-        // Encode as PNG
-        let thumbnail_base64 = encode_thumbnail_png(&pixels, thumb_w, thumb_h);
+            (encode_thumbnail_png(&pixels, tw, th), tw, th)
+        };
+        #[cfg(target_arch = "wasm32")]
+        let (thumbnail_base64, thumb_w, thumb_h) = (String::new(), 0u32, 0u32);
 
         // Auto-generate name from fractal type + short timestamp
         let timestamp = SessionManager::timestamp_iso8601();
@@ -1136,7 +1206,6 @@ impl App {
 }
 
 /// Encode RGBA pixels as PNG and return as base64 string.
-#[cfg(not(target_arch = "wasm32"))]
 fn encode_thumbnail_png(pixels: &[u8], width: u32, height: u32) -> String {
     use base64::Engine;
     use image::{ImageBuffer, RgbaImage};
@@ -1152,26 +1221,7 @@ fn encode_thumbnail_png(pixels: &[u8], width: u32, height: u32) -> String {
     base64::engine::general_purpose::STANDARD.encode(&png_bytes)
 }
 
-/// Stub for WASM — PNG encoding not available (image crate is native-only).
-#[cfg(target_arch = "wasm32")]
-fn encode_thumbnail_png(_pixels: &[u8], _width: u32, _height: u32) -> String {
-    String::new()
-}
-
-/// Stub for WASM — image decoding not available.
-#[cfg(target_arch = "wasm32")]
-fn decode_thumbnail_to_egui(
-    _ctx: &egui::Context,
-    _id: &str,
-    _base64_data: &str,
-    _width: u32,
-    _height: u32,
-) -> Option<egui::TextureHandle> {
-    None
-}
-
 /// Decode a base64 PNG thumbnail and upload as an egui texture.
-#[cfg(not(target_arch = "wasm32"))]
 fn decode_thumbnail_to_egui(
     ctx: &egui::Context,
     id: &str,
