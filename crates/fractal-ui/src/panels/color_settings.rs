@@ -11,8 +11,8 @@ impl ColorSettingsPanel {
         let mut changed = false;
 
         egui::CollapsingHeader::new("Colors").default_open(true).show(ui, |ui| {
-            let color_ranges = &state.control_ranges.color;
-            let lighting_ranges = &state.control_ranges.lighting;
+            let color_ranges = &state.settings.color;
+            let lighting_ranges = &state.settings.lighting;
             let color_config = &mut state.color_config;
 
             // Color mode selector

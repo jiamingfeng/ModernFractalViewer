@@ -2,10 +2,10 @@
 //!
 //! This crate provides egui-based UI components for the fractal viewer.
 
-pub mod control_ranges;
+pub mod app_settings;
 pub mod panels;
 pub mod state;
 
-pub use control_ranges::UiControlRanges;
+pub use app_settings::AppSettings;
 pub use panels::FractalPanel;
 pub use state::{SessionSlotDisplay, UiState};

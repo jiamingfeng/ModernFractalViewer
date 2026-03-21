@@ -1,7 +1,11 @@
-# Modern Fractal Viewer — UI Control Ranges
+# Modern Fractal Viewer — Application Settings
 #
-# This file defines the min/max ranges for all sliders and drag values.
+# This file defines app behavior and min/max ranges for all sliders.
 # Edit values to customize the UI. Delete this file to reset to defaults.
+
+# ── App Behavior ─────────────────────────────────────────────────
+
+auto_load_last_session = false
 #
 # Field reference:
 #   min         — minimum slider/drag value

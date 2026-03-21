@@ -50,6 +50,9 @@ wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["Window", "Document", "Element", "Storage"] }
 web-time = "1"
 
+[features]
+hot-reload = ["fractal-renderer/hot-reload"]
+
 [dev-dependencies]
 tempfile.workspace = true
 

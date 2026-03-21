@@ -10,7 +10,7 @@ impl CameraControlsPanel {
         let mut changed = false;
 
         egui::CollapsingHeader::new("Camera").default_open(true).show(ui, |ui| {
-            let ranges = &state.control_ranges.camera;
+            let ranges = &state.settings.camera;
             let camera = &mut state.camera;
 
             // FOV slider

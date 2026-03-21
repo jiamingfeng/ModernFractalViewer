@@ -1,7 +1,7 @@
 //! Fractal parameters panel
 
 use crate::UiState;
-use crate::control_ranges::IntRange;
+use crate::app_settings::IntRange;
 use egui::Ui;
 use fractal_core::FractalType;
 
@@ -36,8 +36,8 @@ impl FractalParamsPanel {
             ui.add_space(5.0);
 
             egui::CollapsingHeader::new("Parameters").default_open(true).show(ui, |ui| {
-                // Split borrow: &mut fractal_params + &control_ranges.fractal
-                let ranges = &state.control_ranges.fractal;
+                // Split borrow: &mut fractal_params + &settings.fractal
+                let ranges = &state.settings.fractal;
                 let params = &mut state.fractal_params;
 
                 match params.fractal_type {
@@ -68,7 +68,7 @@ impl FractalParamsPanel {
     fn show_mandelbulb_params(
         ui: &mut Ui,
         params: &mut fractal_core::FractalParams,
-        ranges: &crate::control_ranges::MandelbulbRanges,
+        ranges: &crate::app_settings::MandelbulbRanges,
     ) -> bool {
         let mut changed = false;
 
@@ -94,7 +94,7 @@ impl FractalParamsPanel {
     fn show_julia_params(
         ui: &mut Ui,
         params: &mut fractal_core::FractalParams,
-        ranges: &crate::control_ranges::Julia3DRanges,
+        ranges: &crate::app_settings::Julia3DRanges,
     ) -> bool {
         let mut changed = false;
 
@@ -116,7 +116,7 @@ impl FractalParamsPanel {
     fn show_mandelbox_params(
         ui: &mut Ui,
         params: &mut fractal_core::FractalParams,
-        ranges: &crate::control_ranges::MandelboxRanges,
+        ranges: &crate::app_settings::MandelboxRanges,
     ) -> bool {
         let mut changed = false;
 
@@ -149,7 +149,7 @@ impl FractalParamsPanel {
     fn show_sierpinski_params(
         ui: &mut Ui,
         params: &mut fractal_core::FractalParams,
-        ranges: &crate::control_ranges::SierpinskiRanges,
+        ranges: &crate::app_settings::SierpinskiRanges,
     ) -> bool {
         let mut changed = false;
 

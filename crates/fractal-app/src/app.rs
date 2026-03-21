@@ -59,6 +59,9 @@ pub struct App {
     data_dir: Option<std::path::PathBuf>,
     /// Number of frames rendered (used to manage splash lifecycle)
     rendered_frames: u32,
+    /// Hot-reload file watcher (only present with `hot-reload` feature)
+    #[cfg(feature = "hot-reload")]
+    hot_reloader: Option<crate::hot_reload::HotReloader>,
 }
 
 impl App {
@@ -138,16 +141,16 @@ impl App {
         // Load control ranges from config file (or defaults)
         {
             #[cfg(target_arch = "wasm32")]
-            { ui_state.control_ranges = crate::config_manager::load_control_ranges_wasm(); }
+            { ui_state.settings = crate::config_manager::load_settings_wasm(); }
             #[cfg(not(target_arch = "wasm32"))]
             {
                 if let Some(ref dir) = data_dir {
-                    ui_state.control_ranges = crate::config_manager::load_control_ranges(dir);
+                    ui_state.settings = crate::config_manager::load_settings(dir);
                 }
             }
         }
 
-        let camera = Camera::default();
+        let mut camera = Camera::default();
 
         // Session save/load
         let session_manager = {
@@ -180,6 +183,29 @@ impl App {
                     }
                 }
             }
+        };
+
+        // Auto-load last session if the setting is enabled
+        if ui_state.settings.auto_load_last_session {
+        if let Some(ref mgr) = session_manager {
+            if let Ok(session) = mgr.load("__last_session") {
+                ui_state.fractal_params = session.fractal_params;
+                ui_state.ray_march_config = session.ray_march_config;
+                ui_state.lighting_config = session.lighting_config;
+                ui_state.color_config = session.color_config;
+                camera = session.camera;
+                log::info!("Restored last session");
+            }
+        }
+        }
+
+        // Initialize hot-reloader (only with hot-reload feature)
+        #[cfg(feature = "hot-reload")]
+        let hot_reloader = {
+            use fractal_renderer::FractalPipeline;
+            let shader_path = FractalPipeline::shader_path();
+            let config_path = data_dir.as_ref().map(|d| d.join("settings.toml"));
+            Some(crate::hot_reload::HotReloader::new(shader_path, config_path))
         };
 
         let thumbnail_capture = ThumbnailCapture::new(
@@ -252,6 +278,8 @@ impl App {
             data_dir,
             splash,
             rendered_frames: 0,
+            #[cfg(feature = "hot-reload")]
+            hot_reloader,
         })
     }
     
@@ -266,6 +294,7 @@ impl App {
 
         match event {
             WindowEvent::CloseRequested => {
+                self.save_last_session();
                 log::info!("Close requested");
                 elwt.exit();
             }
@@ -484,8 +513,52 @@ impl App {
 
         // Push current camera state to UI for display/sliders
         self.ui_state.camera = self.camera.clone();
+
+        // Hot-reload: check for shader/config file changes
+        #[cfg(feature = "hot-reload")]
+        self.poll_hot_reload();
     }
-    
+
+    #[cfg(feature = "hot-reload")]
+    fn poll_hot_reload(&mut self) {
+        use crate::hot_reload::HotReloadEvent;
+
+        let reloader = match self.hot_reloader.as_mut() {
+            Some(r) => r,
+            None => return,
+        };
+
+        match reloader.poll() {
+            HotReloadEvent::ShaderChanged => {
+                if let Some(source) = reloader.read_shader() {
+                    match self.pipeline.reload_shader(&self.render_ctx.device, &source) {
+                        Ok(()) => {
+                            reloader.shader_error = None;
+                        }
+                        Err(e) => {
+                            log::error!("Hot-reload shader error: {e}");
+                            reloader.shader_error = Some(e);
+                        }
+                    }
+                }
+            }
+            HotReloadEvent::ConfigChanged => {
+                if let Some(toml_str) = reloader.read_config() {
+                    match toml::from_str::<fractal_ui::AppSettings>(&toml_str) {
+                        Ok(ranges) => {
+                            self.ui_state.settings = ranges;
+                            log::info!("Hot-reloaded control settings from config file");
+                        }
+                        Err(e) => {
+                            log::warn!("Config hot-reload parse error: {e}");
+                        }
+                    }
+                }
+            }
+            HotReloadEvent::None => {}
+        }
+    }
+
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.render_ctx.surface.get_current_texture()?;
         let view = output.texture.create_view(&Default::default());
@@ -632,7 +705,14 @@ impl App {
         if self.splash.is_none() {
             self.camera = self.ui_state.camera.clone();
             self.handle_session_requests();
-            self.save_control_ranges_if_dirty();
+            self.save_settings_if_dirty();
+
+            // Handle "open config file" request from UI
+            #[cfg(not(target_arch = "wasm32"))]
+            if self.ui_state.open_config_requested {
+                self.ui_state.open_config_requested = false;
+                self.open_config_file();
+            }
         }
 
         Ok(())
@@ -816,22 +896,82 @@ impl App {
         }
     }
 
-    fn save_control_ranges_if_dirty(&mut self) {
-        if !self.ui_state.control_ranges_dirty {
+    fn save_settings_if_dirty(&mut self) {
+        if !self.ui_state.settings_dirty {
             return;
         }
-        self.ui_state.control_ranges_dirty = false;
+        self.ui_state.settings_dirty = false;
         #[cfg(target_arch = "wasm32")]
         {
-            if let Err(e) = crate::config_manager::save_control_ranges_wasm(&self.ui_state.control_ranges) {
+            if let Err(e) = crate::config_manager::save_settings_wasm(&self.ui_state.settings) {
                 log::error!("Failed to save control ranges: {e}");
             }
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
             if let Some(ref dir) = self.data_dir {
-                if let Err(e) = crate::config_manager::save_control_ranges(dir, &self.ui_state.control_ranges) {
+                if let Err(e) = crate::config_manager::save_settings(dir, &self.ui_state.settings) {
                     log::error!("Failed to save control ranges: {e}");
+                }
+            }
+        }
+    }
+
+    /// Save current state to the reserved "__last_session" slot (called on app exit).
+    fn save_last_session(&self) {
+        let Some(ref mgr) = self.session_manager else {
+            return;
+        };
+        let session = SavedSession {
+            version: "1".to_string(),
+            timestamp: SessionManager::timestamp_iso8601(),
+            name: "Last Session".to_string(),
+            fractal_type_name: self.ui_state.fractal_params.fractal_type.name().to_string(),
+            thumbnail_base64: String::new(), // skip thumbnail for speed on exit
+            thumbnail_width: 0,
+            thumbnail_height: 0,
+            fractal_params: self.ui_state.fractal_params,
+            ray_march_config: self.ui_state.ray_march_config,
+            lighting_config: self.ui_state.lighting_config,
+            color_config: self.ui_state.color_config,
+            camera: self.camera.clone(),
+        };
+        match mgr.save_overwrite("__last_session", &session) {
+            Ok(()) => log::info!("Saved last session"),
+            Err(e) => log::error!("Failed to save last session: {e}"),
+        }
+    }
+
+    /// Open the control settings TOML config file in the OS default editor.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn open_config_file(&mut self) {
+        let Some(ref dir) = self.data_dir else {
+            log::warn!("No data directory available");
+            return;
+        };
+        let path = dir.join("settings.toml");
+
+        // Ensure file exists before opening
+        if !path.exists() {
+            self.ui_state.settings_dirty = true;
+            self.save_settings_if_dirty();
+        }
+
+        log::info!("Opening config file: {}", path.display());
+        if let Err(e) = std::process::Command::new("cmd")
+            .args(["/C", "start", "", &path.display().to_string()])
+            .spawn()
+        {
+            // Fallback for non-Windows
+            if let Err(e2) = std::process::Command::new("xdg-open")
+                .arg(&path)
+                .spawn()
+            {
+                if let Err(e3) = std::process::Command::new("open")
+                    .arg(&path)
+                    .spawn()
+                {
+                    log::error!("Failed to open config file: {e}, {e2}, {e3}");
                 }
             }
         }

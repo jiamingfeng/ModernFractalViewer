@@ -66,17 +66,20 @@ impl SessionPanel {
                                                 if ui.small_button("Load").clicked() {
                                                     load_id = Some(slot.id.clone());
                                                 }
-                                                if ui.small_button("Save").clicked() {
-                                                    overwrite_info = Some((
-                                                        slot.id.clone(),
-                                                        slot.name.clone(),
-                                                    ));
-                                                }
-                                                if ui.small_button("Delete").clicked() {
-                                                    delete_info = Some((
-                                                        slot.id.clone(),
-                                                        slot.name.clone(),
-                                                    ));
+                                                // Reserved slots (e.g. __last_session) are read-only
+                                                if !slot.id.starts_with("__") {
+                                                    if ui.small_button("Save").clicked() {
+                                                        overwrite_info = Some((
+                                                            slot.id.clone(),
+                                                            slot.name.clone(),
+                                                        ));
+                                                    }
+                                                    if ui.small_button("Delete").clicked() {
+                                                        delete_info = Some((
+                                                            slot.id.clone(),
+                                                            slot.name.clone(),
+                                                        ));
+                                                    }
                                                 }
                                             });
                                         });

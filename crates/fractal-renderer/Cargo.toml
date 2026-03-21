@@ -17,6 +17,7 @@ pollster.workspace = true
 
 [features]
 snapshot-tests = []
+hot-reload = []
 
 [dev-dependencies]
 fractal-core.workspace = true

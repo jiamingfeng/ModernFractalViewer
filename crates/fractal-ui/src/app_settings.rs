@@ -1,7 +1,7 @@
-//! Data-driven UI control ranges.
+//! Application settings (data-driven).
 //!
-//! All slider/drag value min/max/speed/decimals are defined here and can be
-//! loaded from a TOML config file at runtime.
+//! All slider/drag value ranges and app behavior preferences are defined here
+//! and can be loaded from a TOML config file at runtime.
 
 use serde::{Deserialize, Serialize};
 
@@ -357,19 +357,21 @@ impl Default for DebugRanges {
 // Top-level config
 // ---------------------------------------------------------------------------
 
-/// All UI control ranges, organized by panel category.
+/// Application settings: UI control ranges + app behavior preferences.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct UiControlRanges {
+pub struct AppSettings {
     pub fractal: FractalRanges,
     pub camera: CameraRanges,
     pub rendering: RenderingRanges,
     pub lighting: LightingRanges,
     pub color: ColorRanges,
     pub debug: DebugRanges,
+    /// Whether to auto-load the last session on app launch.
+    pub auto_load_last_session: bool,
 }
 
-impl Default for UiControlRanges {
+impl Default for AppSettings {
     fn default() -> Self {
         Self {
             fractal: FractalRanges::default(),
@@ -378,13 +380,14 @@ impl Default for UiControlRanges {
             lighting: LightingRanges::default(),
             color: ColorRanges::default(),
             debug: DebugRanges::default(),
+            auto_load_last_session: false,
         }
     }
 }
 
-impl UiControlRanges {
+impl AppSettings {
     /// The default config as a TOML string, embedded at compile time.
-    pub const DEFAULT_TOML: &'static str = include_str!("default_control_ranges.toml");
+    pub const DEFAULT_TOML: &'static str = include_str!("default_app_settings.toml");
 }
 
 // ---------------------------------------------------------------------------
@@ -397,22 +400,22 @@ mod tests {
 
     #[test]
     fn default_roundtrips_through_json() {
-        let original = UiControlRanges::default();
+        let original = AppSettings::default();
         let json = serde_json::to_string(&original).unwrap();
-        let restored: UiControlRanges = serde_json::from_str(&json).unwrap();
+        let restored: AppSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(original, restored);
     }
 
     #[test]
     fn empty_json_deserializes_to_defaults() {
-        let restored: UiControlRanges = serde_json::from_str("{}").unwrap();
-        assert_eq!(restored, UiControlRanges::default());
+        let restored: AppSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(restored, AppSettings::default());
     }
 
     #[test]
     fn partial_json_fills_missing_with_defaults() {
         let json = r#"{"camera": {"fov": {"min": 10.0, "max": 180.0}}}"#;
-        let restored: UiControlRanges = serde_json::from_str(json).unwrap();
+        let restored: AppSettings = serde_json::from_str(json).unwrap();
         assert_eq!(restored.camera.fov.min, 10.0);
         assert_eq!(restored.camera.fov.max, 180.0);
         // Everything else should be default

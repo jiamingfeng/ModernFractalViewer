@@ -45,8 +45,18 @@ When running local checks, do NOT set RUSTFLAGS manually — just use `cargo che
 Before pushing, verify cross-compilation for at least Windows (default) and Android:
 ```bash
 cargo check --workspace
+cargo check --workspace --features hot-reload
 cargo check -p fractal-app --target aarch64-linux-android
 ```
+
+### Hot-Reload (Shader Development)
+
+```bash
+# Run with shader hot-reload enabled (dev only)
+cargo run -p fractal-app --features hot-reload
+```
+
+When enabled, the app polls `crates/fractal-renderer/shaders/raymarcher.wgsl` for changes every 500ms. Edit the shader, save, and see results live. Compile errors are logged and the old shader continues rendering. Also hot-reloads `settings.toml` config changes.
 
 ## Architecture
 
@@ -113,6 +123,8 @@ wgpu uses Naga to transpile WGSL to SPIR-V (Vulkan), MSL (Metal), HLSL (DirectX 
 - **Android**: NativeActivity (no Java), loads `libfractal_app.so` (cdylib). Requires Vulkan level 1 hardware feature.
 - **Web entry**: `crates/fractal-app/index.html` is the Trunk-managed HTML entry. Assets are copied via `data-trunk` directives.
 - **Windows icon**: Embedded at build time via `crates/fractal-app/build.rs` using `winresource`.
+- **Last session auto-save**: The app auto-saves the current state to a reserved `__last_session` slot on exit and restores it on next launch. This slot is hidden from the session UI list (IDs starting with `__` are filtered out in `refresh_session_slots()`).
+- **Control settings (data-driven UI)**: All slider/drag value ranges are defined in `AppSettings` (TOML config) instead of hardcoded. Config file is at `{data_dir}/settings.toml`. Edit via Debug → Control Settings panel or by hand.
 
 ## Reliable Resources on SDFs, Raymarching, Lighting, Rendering
 

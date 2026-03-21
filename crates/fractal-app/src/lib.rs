@@ -4,6 +4,8 @@
 
 pub mod app;
 pub mod config_manager;
+#[cfg(feature = "hot-reload")]
+pub mod hot_reload;
 pub mod input;
 pub mod session_manager;
 

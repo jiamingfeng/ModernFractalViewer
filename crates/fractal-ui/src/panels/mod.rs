@@ -3,7 +3,7 @@
 mod fractal_params;
 mod camera_controls;
 mod color_settings;
-mod control_ranges_panel;
+mod control_settings_panel;
 mod session_panel;
 
 pub use fractal_params::FractalParamsPanel;
@@ -86,14 +86,14 @@ impl FractalPanel {
                             ui.checkbox(&mut state.vsync, "VSync");
                             ui.checkbox(&mut state.auto_rotate, "Auto-rotate");
                             if state.auto_rotate {
-                                let rot_range = &state.control_ranges.debug.rotation_speed;
+                                let rot_range = &state.settings.debug.rotation_speed;
                                 ui.add(
                                     rot_range.slider(&mut state.rotation_speed)
                                         .text("Speed"),
                                 );
                             }
                             ui.add_space(4.0);
-                            control_ranges_panel::ControlRangesPanel::show(ui, state);
+                            control_settings_panel::ControlSettingsPanel::show(ui, state);
                         });
                     });
                 });
@@ -120,7 +120,7 @@ impl FractalPanel {
         let mut changed = false;
 
         egui::CollapsingHeader::new("Rendering").default_open(true).show(ui, |ui| {
-            let ranges = &state.control_ranges.rendering;
+            let ranges = &state.settings.rendering;
             let config = &mut state.ray_march_config;
 
             ui.horizontal(|ui| {
