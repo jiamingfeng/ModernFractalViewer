@@ -3,6 +3,7 @@
 mod fractal_params;
 mod camera_controls;
 mod color_settings;
+mod control_ranges_panel;
 mod session_panel;
 
 pub use fractal_params::FractalParamsPanel;
@@ -85,11 +86,14 @@ impl FractalPanel {
                             ui.checkbox(&mut state.vsync, "VSync");
                             ui.checkbox(&mut state.auto_rotate, "Auto-rotate");
                             if state.auto_rotate {
+                                let rot_range = &state.control_ranges.debug.rotation_speed;
                                 ui.add(
-                                    egui::Slider::new(&mut state.rotation_speed, 0.1..=2.0)
+                                    rot_range.slider(&mut state.rotation_speed)
                                         .text("Speed"),
                                 );
                             }
+                            ui.add_space(4.0);
+                            control_ranges_panel::ControlRangesPanel::show(ui, state);
                         });
                     });
                 });
@@ -116,12 +120,13 @@ impl FractalPanel {
         let mut changed = false;
 
         egui::CollapsingHeader::new("Rendering").default_open(true).show(ui, |ui| {
+            let ranges = &state.control_ranges.rendering;
             let config = &mut state.ray_march_config;
 
             ui.horizontal(|ui| {
                 ui.label("Ray Steps:");
                 let mut steps = config.max_steps as i32;
-                if ui.add(egui::DragValue::new(&mut steps).range(16..=512)).changed() {
+                if ui.add(ranges.ray_steps.drag_value(&mut steps)).changed() {
                     config.max_steps = steps as u32;
                     changed = true;
                 }
@@ -129,25 +134,14 @@ impl FractalPanel {
 
             ui.horizontal(|ui| {
                 ui.label("Surface Precision:");
-                if ui
-                    .add(
-                        egui::DragValue::new(&mut config.epsilon)
-                            .speed(0.0001)
-                            .range(0.00001..=0.01)
-                            .fixed_decimals(5),
-                    )
-                    .changed()
-                {
+                if ui.add(ranges.epsilon.drag_value(&mut config.epsilon)).changed() {
                     changed = true;
                 }
             });
 
             ui.horizontal(|ui| {
                 ui.label("View Distance:");
-                if ui
-                    .add(egui::DragValue::new(&mut config.max_distance).range(10.0..=1000.0))
-                    .changed()
-                {
+                if ui.add(ranges.max_distance.drag_value(&mut config.max_distance)).changed() {
                     changed = true;
                 }
             });
@@ -155,7 +149,7 @@ impl FractalPanel {
             ui.horizontal(|ui| {
                 ui.label("Shadow Detail:");
                 let mut ao = config.ao_steps as i32;
-                if ui.add(egui::DragValue::new(&mut ao).range(0..=16)).changed() {
+                if ui.add(ranges.ao_steps.drag_value(&mut ao)).changed() {
                     config.ao_steps = ao as u32;
                     changed = true;
                 }
@@ -163,25 +157,14 @@ impl FractalPanel {
 
             ui.horizontal(|ui| {
                 ui.label("Shadow Depth:");
-                if ui
-                    .add(egui::Slider::new(&mut config.ao_intensity, 0.0..=1.0))
-                    .changed()
-                {
+                if ui.add(ranges.ao_intensity.slider(&mut config.ao_intensity)).changed() {
                     changed = true;
                 }
             });
 
             ui.horizontal(|ui| {
                 ui.label("Normal Precision:");
-                if ui
-                    .add(
-                        egui::DragValue::new(&mut config.normal_epsilon)
-                            .speed(0.00001)
-                            .range(0.000001..=0.01)
-                            .fixed_decimals(6),
-                    )
-                    .changed()
-                {
+                if ui.add(ranges.normal_epsilon.drag_value(&mut config.normal_epsilon)).changed() {
                     changed = true;
                 }
             });
@@ -191,7 +174,7 @@ impl FractalPanel {
                 egui::ComboBox::from_id_salt("sample_count")
                     .selected_text(format!("{}x", config.sample_count))
                     .show_ui(ui, |ui| {
-                        for &count in &[1u32, 2, 4] {
+                        for &count in &ranges.sample_counts {
                             if ui
                                 .selectable_value(
                                     &mut config.sample_count,

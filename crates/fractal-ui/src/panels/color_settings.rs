@@ -11,6 +11,8 @@ impl ColorSettingsPanel {
         let mut changed = false;
 
         egui::CollapsingHeader::new("Colors").default_open(true).show(ui, |ui| {
+            let color_ranges = &state.control_ranges.color;
+            let lighting_ranges = &state.control_ranges.lighting;
             let color_config = &mut state.color_config;
 
             // Color mode selector
@@ -70,6 +72,7 @@ impl ColorSettingsPanel {
                 });
 
                 // Palette color stops
+                let max_colors = color_ranges.max_palette_colors as usize;
                 let count = color_config.palette_count as usize;
                 let mut remove_index: Option<usize> = None;
 
@@ -99,7 +102,7 @@ impl ColorSettingsPanel {
                     changed = true;
                 }
 
-                if count < 8 {
+                if count < max_colors {
                     ui.horizontal(|ui| {
                         ui.add_space(20.0);
                         if ui.small_button("+ Add Color").clicked() {
@@ -118,14 +121,14 @@ impl ColorSettingsPanel {
                 // Palette scale and offset
                 ui.horizontal(|ui| {
                     ui.label("Color Spread:");
-                    if ui.add(egui::Slider::new(&mut color_config.palette_scale, 0.1..=10.0).logarithmic(true)).changed() {
+                    if ui.add(color_ranges.palette_scale.slider(&mut color_config.palette_scale)).changed() {
                         changed = true;
                     }
                 });
 
                 ui.horizontal(|ui| {
                     ui.label("Color Shift:");
-                    if ui.add(egui::Slider::new(&mut color_config.palette_offset, 0.0..=1.0)).changed() {
+                    if ui.add(color_ranges.palette_offset.slider(&mut color_config.palette_offset)).changed() {
                         changed = true;
                     }
                 });
@@ -152,28 +155,28 @@ impl ColorSettingsPanel {
 
             ui.horizontal(|ui| {
                 ui.label("Ambient Light:");
-                if ui.add(egui::Slider::new(&mut lighting.ambient, 0.0..=1.0)).changed() {
+                if ui.add(lighting_ranges.ambient.slider(&mut lighting.ambient)).changed() {
                     changed = true;
                 }
             });
 
             ui.horizontal(|ui| {
                 ui.label("Direct Light:");
-                if ui.add(egui::Slider::new(&mut lighting.diffuse, 0.0..=1.0)).changed() {
+                if ui.add(lighting_ranges.diffuse.slider(&mut lighting.diffuse)).changed() {
                     changed = true;
                 }
             });
 
             ui.horizontal(|ui| {
                 ui.label("Reflection:");
-                if ui.add(egui::Slider::new(&mut lighting.specular, 0.0..=1.0)).changed() {
+                if ui.add(lighting_ranges.specular.slider(&mut lighting.specular)).changed() {
                     changed = true;
                 }
             });
 
             ui.horizontal(|ui| {
                 ui.label("Gloss:");
-                if ui.add(egui::Slider::new(&mut lighting.shininess, 1.0..=128.0)).changed() {
+                if ui.add(lighting_ranges.shininess.slider(&mut lighting.shininess)).changed() {
                     changed = true;
                 }
             });
@@ -183,7 +186,7 @@ impl ColorSettingsPanel {
             // Dither strength
             ui.horizontal(|ui| {
                 ui.label("Noise Smoothing:");
-                if ui.add(egui::Slider::new(&mut color_config.dither_strength, 0.0..=2.0)).changed() {
+                if ui.add(color_ranges.dither_strength.slider(&mut color_config.dither_strength)).changed() {
                     changed = true;
                 }
             });

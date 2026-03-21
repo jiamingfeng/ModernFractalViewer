@@ -55,6 +55,8 @@ pub struct App {
     thumbnail_capture: ThumbnailCapture,
     /// Splash screen state (Some during loading, None after transition)
     splash: Option<SplashState>,
+    /// Cached data directory path for config/session saves
+    data_dir: Option<std::path::PathBuf>,
     /// Number of frames rendered (used to manage splash lifecycle)
     rendered_frames: u32,
 }
@@ -122,6 +124,29 @@ impl App {
         // Initialize state
         let mut ui_state = UiState::default();
         ui_state.version_info = format!("{} ({})", env!("APP_VERSION"), env!("APP_COMMIT"));
+
+        // Determine data directory and load control ranges
+        let data_dir = {
+            #[cfg(target_os = "android")]
+            { _data_dir_override.clone() }
+            #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
+            { dirs::data_dir().map(|d| d.join("ModernFractalViewer")) }
+            #[cfg(target_arch = "wasm32")]
+            { None::<std::path::PathBuf> }
+        };
+
+        // Load control ranges from config file (or defaults)
+        {
+            #[cfg(target_arch = "wasm32")]
+            { ui_state.control_ranges = crate::config_manager::load_control_ranges_wasm(); }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                if let Some(ref dir) = data_dir {
+                    ui_state.control_ranges = crate::config_manager::load_control_ranges(dir);
+                }
+            }
+        }
+
         let camera = Camera::default();
 
         // Session save/load
@@ -224,6 +249,7 @@ impl App {
             needs_initial_configure: true,
             session_manager,
             thumbnail_capture,
+            data_dir,
             splash,
             rendered_frames: 0,
         })
@@ -606,6 +632,7 @@ impl App {
         if self.splash.is_none() {
             self.camera = self.ui_state.camera.clone();
             self.handle_session_requests();
+            self.save_control_ranges_if_dirty();
         }
 
         Ok(())
@@ -786,6 +813,27 @@ impl App {
 
         for id in &full_output.textures_delta.free {
             self.egui_renderer.free_texture(id);
+        }
+    }
+
+    fn save_control_ranges_if_dirty(&mut self) {
+        if !self.ui_state.control_ranges_dirty {
+            return;
+        }
+        self.ui_state.control_ranges_dirty = false;
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Err(e) = crate::config_manager::save_control_ranges_wasm(&self.ui_state.control_ranges) {
+                log::error!("Failed to save control ranges: {e}");
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(ref dir) = self.data_dir {
+                if let Err(e) = crate::config_manager::save_control_ranges(dir, &self.ui_state.control_ranges) {
+                    log::error!("Failed to save control ranges: {e}");
+                }
+            }
         }
     }
 

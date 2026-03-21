@@ -8,3 +8,7 @@ license.workspace = true
 [dependencies]
 fractal-core.workspace = true
 egui.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

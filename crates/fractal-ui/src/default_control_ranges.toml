@@ -1,0 +1,77 @@
+# Modern Fractal Viewer — UI Control Ranges
+#
+# This file defines the min/max ranges for all sliders and drag values.
+# Edit values to customize the UI. Delete this file to reset to defaults.
+#
+# Field reference:
+#   min         — minimum slider/drag value
+#   max         — maximum slider/drag value
+#   speed       — drag increment speed (optional, for DragValue controls)
+#   decimals    — fixed decimal places (optional)
+#   logarithmic — use log scale (optional, default false)
+
+# ── Fractal Parameters ──────────────────────────────────────────
+
+[fractal.mandelbulb]
+power      = { min = 1.0, max = 16.0 }
+iterations = { min = 1, max = 32 }
+bailout    = { min = 1.0, max = 8.0 }
+
+[fractal.menger]
+iterations = { min = 1, max = 8 }
+
+[fractal.julia3d]
+iterations = { min = 1, max = 32 }
+julia_c    = { min = -2.0, max = 2.0, speed = 0.01 }
+
+[fractal.mandelbox]
+box_scale      = { min = -3.0, max = 3.0 }
+iterations     = { min = 1, max = 32 }
+fold_limit     = { min = 0.5, max = 2.0 }
+min_radius_sq  = { min = 0.01, max = 1.0 }
+
+[fractal.sierpinski]
+iterations = { min = 1, max = 20 }
+size_ratio = { min = 1.5, max = 3.0 }
+
+[fractal.apollonian]
+iterations = { min = 1, max = 12 }
+
+# ── Camera ───────────────────────────────────────────────────────
+
+[camera]
+fov             = { min = 30.0, max = 120.0 }
+zoom            = { min = 0.05, max = 1000.0, logarithmic = true }
+distance_clamp  = { min = 0.001, max = 20.0 }
+
+# ── Rendering ────────────────────────────────────────────────────
+
+[rendering]
+ray_steps       = { min = 16, max = 512 }
+epsilon         = { min = 0.00001, max = 0.01, speed = 0.0001, decimals = 5 }
+max_distance    = { min = 10.0, max = 1000.0 }
+ao_steps        = { min = 0, max = 16 }
+ao_intensity    = { min = 0.0, max = 1.0 }
+normal_epsilon  = { min = 0.000001, max = 0.01, speed = 0.00001, decimals = 6 }
+sample_counts   = [1, 2, 4]
+
+# ── Lighting ─────────────────────────────────────────────────────
+
+[lighting]
+ambient   = { min = 0.0, max = 1.0 }
+diffuse   = { min = 0.0, max = 1.0 }
+specular  = { min = 0.0, max = 1.0 }
+shininess = { min = 1.0, max = 128.0 }
+
+# ── Color ────────────────────────────────────────────────────────
+
+[color]
+palette_scale      = { min = 0.1, max = 10.0, logarithmic = true }
+palette_offset     = { min = 0.0, max = 1.0 }
+dither_strength    = { min = 0.0, max = 2.0 }
+max_palette_colors = 8
+
+# ── Debug ────────────────────────────────────────────────────────
+
+[debug]
+rotation_speed = { min = 0.1, max = 2.0 }

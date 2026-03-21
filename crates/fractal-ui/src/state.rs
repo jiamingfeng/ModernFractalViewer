@@ -3,6 +3,8 @@
 use fractal_core::{Camera, FractalParams, FractalType};
 use fractal_core::sdf::{ColorConfig, LightingConfig, RayMarchConfig};
 
+use crate::control_ranges::UiControlRanges;
+
 /// Display data for a saved session slot (populated by App, consumed by UI).
 #[derive(Clone)]
 pub struct SessionSlotDisplay {
@@ -73,6 +75,10 @@ pub struct UiState {
     pub confirming_delete: Option<(String, String)>,
     /// Version info string for display (e.g. "v0.1.1 (abc1234)")
     pub version_info: String,
+    /// UI control ranges (min/max/speed/decimals for all sliders)
+    pub control_ranges: UiControlRanges,
+    /// Whether control ranges have been modified and need saving
+    pub control_ranges_dirty: bool,
 }
 
 impl Default for UiState {
@@ -97,6 +103,8 @@ impl Default for UiState {
             confirming_overwrite: None,
             confirming_delete: None,
             version_info: String::new(),
+            control_ranges: UiControlRanges::default(),
+            control_ranges_dirty: false,
         }
     }
 }

@@ -3,6 +3,7 @@
 //! Shared code between native binary, WASM, and Android targets.
 
 pub mod app;
+pub mod config_manager;
 pub mod input;
 pub mod session_manager;
 

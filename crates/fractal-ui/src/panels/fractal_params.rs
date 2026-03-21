@@ -1,6 +1,7 @@
 //! Fractal parameters panel
 
 use crate::UiState;
+use crate::control_ranges::IntRange;
 use egui::Ui;
 use fractal_core::FractalType;
 
@@ -35,26 +36,28 @@ impl FractalParamsPanel {
             ui.add_space(5.0);
 
             egui::CollapsingHeader::new("Parameters").default_open(true).show(ui, |ui| {
+                // Split borrow: &mut fractal_params + &control_ranges.fractal
+                let ranges = &state.control_ranges.fractal;
                 let params = &mut state.fractal_params;
 
                 match params.fractal_type {
                     FractalType::Mandelbulb => {
-                        changed |= Self::show_mandelbulb_params(ui, params);
+                        changed |= Self::show_mandelbulb_params(ui, params, &ranges.mandelbulb);
                     }
                     FractalType::Menger => {
-                        changed |= Self::show_menger_params(ui, params);
+                        changed |= show_iterations(ui, params, &ranges.menger.iterations);
                     }
                     FractalType::Julia3D => {
-                        changed |= Self::show_julia_params(ui, params);
+                        changed |= Self::show_julia_params(ui, params, &ranges.julia3d);
                     }
                     FractalType::Mandelbox => {
-                        changed |= Self::show_mandelbox_params(ui, params);
+                        changed |= Self::show_mandelbox_params(ui, params, &ranges.mandelbox);
                     }
                     FractalType::Sierpinski => {
-                        changed |= Self::show_sierpinski_params(ui, params);
+                        changed |= Self::show_sierpinski_params(ui, params, &ranges.sierpinski);
                     }
                     FractalType::Apollonian => {
-                        changed |= Self::show_apollonian_params(ui, params);
+                        changed |= show_iterations(ui, params, &ranges.apollonian.iterations);
                     }
                 }
             });
@@ -62,34 +65,25 @@ impl FractalParamsPanel {
         changed
     }
 
-    fn show_mandelbulb_params(ui: &mut Ui, params: &mut fractal_core::FractalParams) -> bool {
+    fn show_mandelbulb_params(
+        ui: &mut Ui,
+        params: &mut fractal_core::FractalParams,
+        ranges: &crate::control_ranges::MandelbulbRanges,
+    ) -> bool {
         let mut changed = false;
 
         ui.horizontal(|ui| {
             ui.label("Power:");
-            if ui
-                .add(egui::Slider::new(&mut params.power, 1.0..=16.0))
-                .changed()
-            {
+            if ui.add(ranges.power.slider(&mut params.power)).changed() {
                 changed = true;
             }
         });
 
-        ui.horizontal(|ui| {
-            ui.label("Iterations:");
-            let mut iter = params.iterations as i32;
-            if ui.add(egui::Slider::new(&mut iter, 1..=32)).changed() {
-                params.iterations = iter as u32;
-                changed = true;
-            }
-        });
+        changed |= show_iterations(ui, params, &ranges.iterations);
 
         ui.horizontal(|ui| {
             ui.label("Escape Radius:");
-            if ui
-                .add(egui::Slider::new(&mut params.bailout, 1.0..=8.0))
-                .changed()
-            {
+            if ui.add(ranges.bailout.slider(&mut params.bailout)).changed() {
                 changed = true;
             }
         });
@@ -97,115 +91,54 @@ impl FractalParamsPanel {
         changed
     }
 
-    fn show_menger_params(ui: &mut Ui, params: &mut fractal_core::FractalParams) -> bool {
+    fn show_julia_params(
+        ui: &mut Ui,
+        params: &mut fractal_core::FractalParams,
+        ranges: &crate::control_ranges::Julia3DRanges,
+    ) -> bool {
         let mut changed = false;
 
-        ui.horizontal(|ui| {
-            ui.label("Iterations:");
-            let mut iter = params.iterations as i32;
-            if ui.add(egui::Slider::new(&mut iter, 1..=8)).changed() {
-                params.iterations = iter as u32;
-                changed = true;
-            }
-        });
-
-        changed
-    }
-
-    fn show_julia_params(ui: &mut Ui, params: &mut fractal_core::FractalParams) -> bool {
-        let mut changed = false;
-
-        ui.horizontal(|ui| {
-            ui.label("Iterations:");
-            let mut iter = params.iterations as i32;
-            if ui.add(egui::Slider::new(&mut iter, 1..=32)).changed() {
-                params.iterations = iter as u32;
-                changed = true;
-            }
-        });
+        changed |= show_iterations(ui, params, &ranges.iterations);
 
         ui.label("Julia C:");
-        ui.horizontal(|ui| {
-            ui.label("x:");
-            if ui
-                .add(
-                    egui::DragValue::new(&mut params.julia_c[0])
-                        .speed(0.01)
-                        .range(-2.0..=2.0),
-                )
-                .changed()
-            {
-                changed = true;
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.label("y:");
-            if ui
-                .add(
-                    egui::DragValue::new(&mut params.julia_c[1])
-                        .speed(0.01)
-                        .range(-2.0..=2.0),
-                )
-                .changed()
-            {
-                changed = true;
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.label("z:");
-            if ui
-                .add(
-                    egui::DragValue::new(&mut params.julia_c[2])
-                        .speed(0.01)
-                        .range(-2.0..=2.0),
-                )
-                .changed()
-            {
-                changed = true;
-            }
-        });
+        for (i, axis) in ["x", "y", "z"].iter().enumerate() {
+            ui.horizontal(|ui| {
+                ui.label(format!("{axis}:"));
+                if ui.add(ranges.julia_c.drag_value(&mut params.julia_c[i])).changed() {
+                    changed = true;
+                }
+            });
+        }
 
         changed
     }
 
-    fn show_mandelbox_params(ui: &mut Ui, params: &mut fractal_core::FractalParams) -> bool {
+    fn show_mandelbox_params(
+        ui: &mut Ui,
+        params: &mut fractal_core::FractalParams,
+        ranges: &crate::control_ranges::MandelboxRanges,
+    ) -> bool {
         let mut changed = false;
 
         ui.horizontal(|ui| {
             ui.label("Box Scale:");
-            if ui
-                .add(egui::Slider::new(&mut params.scale, -3.0..=3.0))
-                .changed()
-            {
+            if ui.add(ranges.box_scale.slider(&mut params.scale)).changed() {
                 changed = true;
             }
         });
 
-        ui.horizontal(|ui| {
-            ui.label("Iterations:");
-            let mut iter = params.iterations as i32;
-            if ui.add(egui::Slider::new(&mut iter, 1..=32)).changed() {
-                params.iterations = iter as u32;
-                changed = true;
-            }
-        });
+        changed |= show_iterations(ui, params, &ranges.iterations);
 
         ui.horizontal(|ui| {
             ui.label("Fold Range:");
-            if ui
-                .add(egui::Slider::new(&mut params.fold_limit, 0.5..=2.0))
-                .changed()
-            {
+            if ui.add(ranges.fold_limit.slider(&mut params.fold_limit)).changed() {
                 changed = true;
             }
         });
 
         ui.horizontal(|ui| {
             ui.label("Inner Radius:");
-            if ui
-                .add(egui::Slider::new(&mut params.min_radius_sq, 0.01..=1.0))
-                .changed()
-            {
+            if ui.add(ranges.min_radius_sq.slider(&mut params.min_radius_sq)).changed() {
                 changed = true;
             }
         });
@@ -213,43 +146,40 @@ impl FractalParamsPanel {
         changed
     }
 
-    fn show_sierpinski_params(ui: &mut Ui, params: &mut fractal_core::FractalParams) -> bool {
+    fn show_sierpinski_params(
+        ui: &mut Ui,
+        params: &mut fractal_core::FractalParams,
+        ranges: &crate::control_ranges::SierpinskiRanges,
+    ) -> bool {
         let mut changed = false;
 
-        ui.horizontal(|ui| {
-            ui.label("Iterations:");
-            let mut iter = params.iterations as i32;
-            if ui.add(egui::Slider::new(&mut iter, 1..=20)).changed() {
-                params.iterations = iter as u32;
-                changed = true;
-            }
-        });
+        changed |= show_iterations(ui, params, &ranges.iterations);
 
         ui.horizontal(|ui| {
             ui.label("Size Ratio:");
-            if ui
-                .add(egui::Slider::new(&mut params.scale, 1.5..=3.0))
-                .changed()
-            {
+            if ui.add(ranges.size_ratio.slider(&mut params.scale)).changed() {
                 changed = true;
             }
         });
 
         changed
     }
+}
 
-    fn show_apollonian_params(ui: &mut Ui, params: &mut fractal_core::FractalParams) -> bool {
-        let mut changed = false;
-
-        ui.horizontal(|ui| {
-            ui.label("Iterations:");
-            let mut iter = params.iterations as i32;
-            if ui.add(egui::Slider::new(&mut iter, 1..=12)).changed() {
-                params.iterations = iter as u32;
-                changed = true;
-            }
-        });
-
-        changed
-    }
+/// Shared iterations slider used by multiple fractal types.
+fn show_iterations(
+    ui: &mut Ui,
+    params: &mut fractal_core::FractalParams,
+    range: &IntRange,
+) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label("Iterations:");
+        let mut iter = params.iterations as i32;
+        if ui.add(range.slider(&mut iter)).changed() {
+            params.iterations = iter as u32;
+            changed = true;
+        }
+    });
+    changed
 }
