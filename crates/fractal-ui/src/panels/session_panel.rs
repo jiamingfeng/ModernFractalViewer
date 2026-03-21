@@ -35,6 +35,7 @@ impl SessionPanel {
                         .show(ui, |ui| {
                             for slot in &state.session_slots {
                                 ui.group(|ui| {
+                                    ui.set_min_width(ui.available_width());
                                     ui.horizontal(|ui| {
                                         // Thumbnail
                                         if let Some(ref tex) = slot.thumbnail {
@@ -58,9 +59,14 @@ impl SessionPanel {
 
                                         ui.vertical(|ui| {
                                             ui.strong(&slot.name);
+                                            let time = slot.timestamp
+                                                .split('T')
+                                                .nth(1)
+                                                .unwrap_or(&slot.timestamp)
+                                                .trim_end_matches('Z');
                                             ui.weak(format!(
                                                 "{} · {}",
-                                                &slot.timestamp, &slot.fractal_type_name
+                                                time, &slot.fractal_type_name
                                             ));
                                             ui.horizontal(|ui| {
                                                 if ui.small_button("Load").clicked() {

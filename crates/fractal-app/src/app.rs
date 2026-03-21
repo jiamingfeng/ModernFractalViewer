@@ -984,28 +984,11 @@ impl App {
     }
 
     /// Save current state to the reserved "__last_session" slot (called on app exit).
-    fn save_last_session(&self) {
-        let Some(ref mgr) = self.session_manager else {
-            return;
-        };
-        let session = SavedSession {
-            version: "1".to_string(),
-            timestamp: SessionManager::timestamp_iso8601(),
-            name: "Last Session".to_string(),
-            fractal_type_name: self.ui_state.fractal_params.fractal_type.name().to_string(),
-            thumbnail_base64: String::new(), // skip thumbnail for speed on exit
-            thumbnail_width: 0,
-            thumbnail_height: 0,
-            fractal_params: self.ui_state.fractal_params,
-            ray_march_config: self.ui_state.ray_march_config,
-            lighting_config: self.ui_state.lighting_config,
-            color_config: self.ui_state.color_config,
-            camera: self.camera.clone(),
-        };
-        match mgr.save_overwrite("__last_session", &session) {
-            Ok(()) => log::info!("Saved last session"),
-            Err(e) => log::error!("Failed to save last session: {e}"),
-        }
+    fn save_last_session(&mut self) {
+        let timestamp = SessionManager::timestamp_iso8601();
+        let short_ts = &timestamp[..10]; // YYYY-MM-DD
+        let name = format!("Last Session {short_ts}");
+        self.save_session_with_name(Some("__last_session"), &name);
     }
 
     /// Open the control settings TOML config file in the OS default editor.
@@ -1084,6 +1067,17 @@ impl App {
     /// Save the current session. If `overwrite_id` is `Some`, overwrites that slot;
     /// otherwise creates a new slot.
     fn save_session(&mut self, overwrite_id: Option<&str>) {
+        let timestamp = SessionManager::timestamp_iso8601();
+        let short_ts = &timestamp[..10];
+        let name = format!(
+            "{} {}",
+            self.ui_state.fractal_params.fractal_type.name(),
+            short_ts
+        );
+        self.save_session_with_name(overwrite_id, &name);
+    }
+
+    fn save_session_with_name(&mut self, overwrite_id: Option<&str>, name: &str) {
         // Capture thumbnail (native only — WASM can't do blocking GPU readback)
         #[cfg(not(target_arch = "wasm32"))]
         let (thumbnail_base64, thumb_w, thumb_h) = {
@@ -1117,19 +1111,12 @@ impl App {
         #[cfg(target_arch = "wasm32")]
         let (thumbnail_base64, thumb_w, thumb_h) = (String::new(), 0u32, 0u32);
 
-        // Auto-generate name from fractal type + short timestamp
         let timestamp = SessionManager::timestamp_iso8601();
-        let short_ts = &timestamp[..10]; // YYYY-MM-DD
-        let name = format!(
-            "{} {}",
-            self.ui_state.fractal_params.fractal_type.name(),
-            short_ts
-        );
 
         let session = SavedSession {
             version: "1".to_string(),
             timestamp,
-            name,
+            name: name.to_string(),
             fractal_type_name: self.ui_state.fractal_params.fractal_type.name().to_string(),
             thumbnail_base64,
             thumbnail_width: thumb_w,
