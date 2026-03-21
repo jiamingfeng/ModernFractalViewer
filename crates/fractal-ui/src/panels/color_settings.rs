@@ -230,6 +230,26 @@ impl ColorSettingsPanel {
                 }
             });
 
+            // Light direction (editable XYZ)
+            ui.horizontal(|ui| {
+                ui.label("Light Dir:");
+                let dir = &mut lighting.light_dir;
+                let mut dir_changed = false;
+                dir_changed |= ui.add(egui::DragValue::new(&mut dir[0]).speed(0.01).prefix("x:")).changed();
+                dir_changed |= ui.add(egui::DragValue::new(&mut dir[1]).speed(0.01).prefix("y:")).changed();
+                dir_changed |= ui.add(egui::DragValue::new(&mut dir[2]).speed(0.01).prefix("z:")).changed();
+                if dir_changed {
+                    // Normalize
+                    let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
+                    if len > 0.001 {
+                        dir[0] /= len;
+                        dir[1] /= len;
+                        dir[2] /= len;
+                    }
+                    changed = true;
+                }
+            });
+
             if state.light_control_active {
                 ui.small("Hold L + drag mouse to change light direction");
             }

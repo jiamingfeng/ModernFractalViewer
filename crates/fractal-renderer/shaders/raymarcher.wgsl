@@ -456,13 +456,18 @@ fn ray_march(ro: vec3<f32>, rd: vec3<f32>) -> RayMarchResult {
 // NORMAL CALCULATION
 // ============================================================================
 
-fn calc_normal(pos: vec3<f32>) -> vec3<f32> {
-    let e = vec2<f32>(u.normal_epsilon, 0.0);
-    return normalize(vec3<f32>(
-        map(pos + e.xyy).x - map(pos - e.xyy).x,
-        map(pos + e.yxy).x - map(pos - e.yxy).x,
-        map(pos + e.yyx).x - map(pos - e.yyx).x
-    ));
+fn calc_normal(pos: vec3<f32>, t: f32) -> vec3<f32> {
+    // Tetrahedron technique (4 SDF evals instead of 6) with distance-proportional
+    // epsilon for LoD filtering. Prevents banding at far distances and aliasing
+    // at near distances. See: iquilezles.org/articles/normalsSDF
+    let h = max(u.normal_epsilon * t, 1e-7);
+    let k = vec2<f32>(1.0, -1.0);
+    return normalize(
+        k.xyy * map(pos + k.xyy * h).x +
+        k.yyx * map(pos + k.yyx * h).x +
+        k.yxy * map(pos + k.yxy * h).x +
+        k.xxx * map(pos + k.xxx * h).x
+    );
 }
 
 // ============================================================================
@@ -721,7 +726,7 @@ fn render_sample(uv: vec2<f32>) -> vec3<f32> {
     } else {
         // Hit point and normal
         let pos = ro + rd * result.distance;
-        let nor = calc_normal(pos);
+        let nor = calc_normal(pos, result.distance);
 
         // Surface color from palette
         col = get_color(result.trap, nor, result.steps);

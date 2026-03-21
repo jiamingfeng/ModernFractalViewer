@@ -450,6 +450,43 @@ impl App {
         ];
     }
     
+    /// Draw a small XYZ coordinate axes gizmo in the bottom-left corner.
+    fn draw_axes_gizmo(ctx: &egui::Context) {
+        let screen = ctx.screen_rect();
+        let margin = 50.0;
+        let center = egui::pos2(screen.left() + margin, screen.bottom() - margin);
+        let axis_len = 30.0;
+
+        egui::Area::new(egui::Id::new("axes_gizmo"))
+            .fixed_pos(egui::pos2(0.0, 0.0))
+            .order(egui::Order::Foreground)
+            .interactable(false)
+            .show(ctx, |ui| {
+                let painter = ui.painter();
+
+                // Background circle
+                painter.circle_filled(center, axis_len + 8.0, egui::Color32::from_black_alpha(60));
+
+                // X axis (Red) → right
+                let x_end = egui::pos2(center.x + axis_len, center.y);
+                painter.line_segment([center, x_end], egui::Stroke::new(2.0, egui::Color32::from_rgb(220, 50, 50)));
+                painter.text(egui::pos2(x_end.x + 4.0, x_end.y), egui::Align2::LEFT_CENTER, "X",
+                    egui::FontId::proportional(10.0), egui::Color32::from_rgb(220, 50, 50));
+
+                // Y axis (Green) → up
+                let y_end = egui::pos2(center.x, center.y - axis_len);
+                painter.line_segment([center, y_end], egui::Stroke::new(2.0, egui::Color32::from_rgb(50, 200, 50)));
+                painter.text(egui::pos2(y_end.x, y_end.y - 6.0), egui::Align2::CENTER_BOTTOM, "Y",
+                    egui::FontId::proportional(10.0), egui::Color32::from_rgb(50, 200, 50));
+
+                // Z axis (Blue) → diagonal (depth hint)
+                let z_end = egui::pos2(center.x - axis_len * 0.6, center.y + axis_len * 0.4);
+                painter.line_segment([center, z_end], egui::Stroke::new(2.0, egui::Color32::from_rgb(50, 80, 220)));
+                painter.text(egui::pos2(z_end.x - 4.0, z_end.y), egui::Align2::RIGHT_CENTER, "Z",
+                    egui::FontId::proportional(10.0), egui::Color32::from_rgb(50, 80, 220));
+            });
+    }
+
     /// Draw a 2D light direction gizmo overlay via egui.
     fn draw_light_gizmo(ctx: &egui::Context, light_dir: &[f32; 3]) {
         let screen = ctx.screen_rect();
@@ -822,6 +859,9 @@ impl App {
                                     });
                             });
                     }
+
+                    // Coordinate axes gizmo (always visible, bottom-left)
+                    Self::draw_axes_gizmo(ctx);
 
                     // Light direction gizmo (shown when L key is held)
                     self.ui_state.light_control_active = self.input.l_key_down;
