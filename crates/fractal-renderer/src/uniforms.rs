@@ -103,8 +103,12 @@ pub struct Uniforms {
     pub light_intensity: f32,      // 4 bytes, offset 428
     pub shadow_softness: f32,      // 4 bytes, offset 432
 
-    // Reserved (76 bytes at offset 436)
-    pub _reserved: [f32; 19],      // 76 bytes, offset 436
+    // LOD (8 bytes at offset 436)
+    pub lod_enabled: u32,          // 4 bytes, offset 436
+    pub lod_scale: f32,            // 4 bytes, offset 440
+
+    // Reserved (68 bytes at offset 444)
+    pub _reserved: [f32; 17],      // 68 bytes, offset 444
 
     // Total: 512 bytes
 }
@@ -191,7 +195,9 @@ impl Uniforms {
             metallic: 0.0,
             light_intensity: 1.5,
             shadow_softness: 8.0,
-            _reserved: [0.0; 19],
+            lod_enabled: ray_march.lod_enabled as u32,
+            lod_scale: ray_march.lod_scale,
+            _reserved: [0.0; 17],
         };
         u.update_color(&color);
         u
@@ -228,6 +234,8 @@ impl Uniforms {
         self.ao_intensity = config.ao_intensity;
         self.normal_epsilon = config.normal_epsilon;
         self.sample_count = config.sample_count;
+        self.lod_enabled = config.lod_enabled as u32;
+        self.lod_scale = config.lod_scale;
     }
 
     /// Update lighting config

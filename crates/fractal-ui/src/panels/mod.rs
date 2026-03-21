@@ -71,10 +71,13 @@ impl FractalPanel {
                         changed |= FractalParamsPanel::show(ui, state);
 
                         ui.add_space(10.0);
+                        changed |= ColorSettingsPanel::show(ui, state);
+
+                        ui.add_space(10.0);
                         changed |= Self::show_rendering_settings(ui, state);
 
                         ui.add_space(10.0);
-                        changed |= ColorSettingsPanel::show(ui, state);
+                        changed |= Self::show_lighting_settings(ui, state);
 
                         ui.add_space(10.0);
                         changed |= CameraControlsPanel::show(ui, state);
@@ -150,22 +153,6 @@ impl FractalPanel {
             });
 
             ui.horizontal(|ui| {
-                ui.label("Shadow Detail:");
-                let mut ao = config.ao_steps as i32;
-                if ui.add(ranges.ao_steps.drag_value(&mut ao)).changed() {
-                    config.ao_steps = ao as u32;
-                    changed = true;
-                }
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("Shadow Depth:");
-                if ui.add(ranges.ao_intensity.slider(&mut config.ao_intensity)).changed() {
-                    changed = true;
-                }
-            });
-
-            ui.horizontal(|ui| {
                 ui.label("Normal Precision:");
                 if ui.add(ranges.normal_epsilon.drag_value(&mut config.normal_epsilon)).changed() {
                     changed = true;
@@ -193,6 +180,156 @@ impl FractalPanel {
             });
             if config.sample_count > 1 {
                 ui.small("Higher values improve quality but reduce FPS.");
+            }
+
+            ui.add_space(6.0);
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label("Level of Detail:");
+                if ui.checkbox(&mut config.lod_enabled, "").changed() {
+                    changed = true;
+                }
+                if config.lod_enabled {
+                    ui.label("Scale:");
+                    if ui.add(ranges.lod_scale.drag_value(&mut config.lod_scale)).changed() {
+                        changed = true;
+                    }
+                }
+            });
+            if config.lod_enabled {
+                ui.small("Scales precision with distance. Higher = faster but less detail.");
+            }
+        });
+
+        changed
+    }
+
+    fn show_lighting_settings(ui: &mut egui::Ui, state: &mut UiState) -> bool {
+        let mut changed = false;
+
+        egui::CollapsingHeader::new("Lighting").default_open(true).show(ui, |ui| {
+            let lighting_ranges = &state.settings.lighting;
+            let rendering_ranges = &state.settings.rendering;
+            let lighting = &mut state.lighting_config;
+            let ray_config = &mut state.ray_march_config;
+
+            // Lighting model selector
+            ui.horizontal(|ui| {
+                ui.label("Model:");
+                egui::ComboBox::from_id_salt("lighting_model")
+                    .selected_text(match lighting.lighting_model {
+                        0 => "Blinn-Phong",
+                        1 => "PBR (GGX)",
+                        _ => "Unknown",
+                    })
+                    .show_ui(ui, |ui| {
+                        if ui.selectable_value(&mut lighting.lighting_model, 0, "Blinn-Phong").clicked() {
+                            changed = true;
+                        }
+                        if ui.selectable_value(&mut lighting.lighting_model, 1, "PBR (GGX)").clicked() {
+                            changed = true;
+                        }
+                    });
+            });
+
+            // Shared: ambient
+            ui.horizontal(|ui| {
+                ui.label("Ambient Light:");
+                if ui.add(lighting_ranges.ambient.slider(&mut lighting.ambient)).changed() {
+                    changed = true;
+                }
+            });
+
+            if lighting.lighting_model == 0 {
+                // Blinn-Phong specific
+                ui.horizontal(|ui| {
+                    ui.label("Direct Light:");
+                    if ui.add(lighting_ranges.diffuse.slider(&mut lighting.diffuse)).changed() {
+                        changed = true;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Reflection:");
+                    if ui.add(lighting_ranges.specular.slider(&mut lighting.specular)).changed() {
+                        changed = true;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Gloss:");
+                    if ui.add(lighting_ranges.shininess.slider(&mut lighting.shininess)).changed() {
+                        changed = true;
+                    }
+                });
+            } else {
+                // PBR specific
+                ui.horizontal(|ui| {
+                    ui.label("Roughness:");
+                    if ui.add(lighting_ranges.roughness.slider(&mut lighting.roughness)).changed() {
+                        changed = true;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Metallic:");
+                    if ui.add(lighting_ranges.metallic.slider(&mut lighting.metallic)).changed() {
+                        changed = true;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Light Intensity:");
+                    if ui.add(lighting_ranges.light_intensity.slider(&mut lighting.light_intensity)).changed() {
+                        changed = true;
+                    }
+                });
+            }
+
+            // Shadow sharpness (IQ's k parameter)
+            ui.horizontal(|ui| {
+                ui.label("Shadow Sharpness:");
+                if ui.add(lighting_ranges.shadow_softness.slider(&mut lighting.shadow_softness)).changed() {
+                    changed = true;
+                }
+            });
+
+            // AO controls (moved from Rendering section)
+            ui.horizontal(|ui| {
+                ui.label("AO Steps:");
+                let mut ao = ray_config.ao_steps as i32;
+                if ui.add(rendering_ranges.ao_steps.drag_value(&mut ao)).changed() {
+                    ray_config.ao_steps = ao as u32;
+                    changed = true;
+                }
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("AO Intensity:");
+                if ui.add(rendering_ranges.ao_intensity.slider(&mut ray_config.ao_intensity)).changed() {
+                    changed = true;
+                }
+            });
+
+            ui.add_space(4.0);
+
+            // Light direction (editable XYZ)
+            ui.horizontal(|ui| {
+                ui.label("Light Dir:");
+                let dir = &mut lighting.light_dir;
+                let mut dir_changed = false;
+                dir_changed |= ui.add(egui::DragValue::new(&mut dir[0]).speed(0.01).prefix("x:")).changed();
+                dir_changed |= ui.add(egui::DragValue::new(&mut dir[1]).speed(0.01).prefix("y:")).changed();
+                dir_changed |= ui.add(egui::DragValue::new(&mut dir[2]).speed(0.01).prefix("z:")).changed();
+                if dir_changed {
+                    let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
+                    if len > 0.001 {
+                        dir[0] /= len;
+                        dir[1] /= len;
+                        dir[2] /= len;
+                    }
+                    changed = true;
+                }
+            });
+
+            if state.light_control_active {
+                ui.small("Hold L + drag mouse to change light direction");
             }
         });
 

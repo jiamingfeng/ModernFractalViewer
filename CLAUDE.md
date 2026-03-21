@@ -119,6 +119,15 @@ Emulates f64 precision (~14 decimal digits) using pairs of f32 values (`hi + lo`
 - **Files**: `fractal-renderer/shaders/raymarcher.wgsl` (lines ~122–158, `DS` struct and arithmetic functions)
 - **Note**: Only affects camera/ray generation precision; SDF evaluation uses standard f32
 
+### Continuous Level of Detail (LOD)
+
+Pixel-footprint-based LOD that filters sub-pixel geometry and SDF noise. Based on Inigo Quilez's technique. Three mechanisms work together: (1) adaptive epsilon grows as `base_epsilon + t * pixel_angular_size * lod_scale`, (2) SDF iteration count is reduced at distance via `var<private> effective_iterations` (fewer iterations = smoother SDF = less aliasing), (3) minimum step size prevents ray micro-stepping through noisy SDF regions near surfaces.
+
+- **Files**: `fractal-core/src/sdf.rs` (lod_enabled, lod_scale in RayMarchConfig), `fractal-renderer/src/uniforms.rs` (GPU uniform fields at offset 436-440), `fractal-renderer/shaders/raymarcher.wgsl` (adaptive epsilon + iteration reduction in ray_march(), LOD-aware calc_normal(), effective_iterations set in render_sample()), `fractal-ui/src/panels/mod.rs` (checkbox + slider)
+- **Data flow**: UI checkbox/slider → RayMarchConfig.lod_enabled/lod_scale → Uniforms.update_ray_march() → GPU uniform → WGSL ray_march() computes adaptive epsilon + iteration reduction per step, render_sample() sets effective_iterations for shading
+- **Config**: lod_enabled (bool, default true), lod_scale (0.1–5.0, default 1.0). Higher lod_scale = more aggressive culling = faster but less distant detail.
+- **Iteration reduction formula**: `reduce = log2(pixel_footprint * lod_scale / epsilon)`, minimum 3 iterations always preserved. All 6 SDF functions read `effective_iterations` instead of `u.iterations`.
+
 ### Camera System
 
 Orbital camera with azimuth/elevation/distance. Supports mouse orbit (left drag), pan (right drag), scroll zoom (logarithmic), touch gestures (single-finger orbit, two-finger pinch-zoom and pan), keyboard shortcuts (R=reset, Space=auto-rotate, Esc=toggle panel), and preset views (Top, Front).

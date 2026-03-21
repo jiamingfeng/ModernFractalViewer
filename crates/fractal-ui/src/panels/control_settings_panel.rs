@@ -70,8 +70,7 @@ impl ControlSettingsPanel {
                 show_int_range(ui, "Ray Steps", &mut r.ray_steps, &mut state.settings_dirty);
                 show_float_range(ui, "Epsilon", &mut r.epsilon, &mut state.settings_dirty);
                 show_float_range(ui, "Max Dist", &mut r.max_distance, &mut state.settings_dirty);
-                show_int_range(ui, "AO Steps", &mut r.ao_steps, &mut state.settings_dirty);
-                show_float_range(ui, "AO Intensity", &mut r.ao_intensity, &mut state.settings_dirty);
+                show_float_range(ui, "LOD Scale", &mut r.lod_scale, &mut state.settings_dirty);
             }
 
             ui.separator();
@@ -87,9 +86,18 @@ impl ControlSettingsPanel {
             {
                 let r = &mut state.settings.lighting;
                 show_float_range(ui, "Ambient", &mut r.ambient, &mut state.settings_dirty);
-                show_float_range(ui, "Diffuse", &mut r.diffuse, &mut state.settings_dirty);
-                show_float_range(ui, "Specular", &mut r.specular, &mut state.settings_dirty);
-                show_float_range(ui, "Shininess", &mut r.shininess, &mut state.settings_dirty);
+                if state.lighting_config.lighting_model == 0 {
+                    show_float_range(ui, "Diffuse", &mut r.diffuse, &mut state.settings_dirty);
+                    show_float_range(ui, "Specular", &mut r.specular, &mut state.settings_dirty);
+                    show_float_range(ui, "Shininess", &mut r.shininess, &mut state.settings_dirty);
+                } else {
+                    show_float_range(ui, "Roughness", &mut r.roughness, &mut state.settings_dirty);
+                    show_float_range(ui, "Metallic", &mut r.metallic, &mut state.settings_dirty);
+                    show_float_range(ui, "Light Intensity", &mut r.light_intensity, &mut state.settings_dirty);
+                }
+                show_float_range(ui, "Shadow Sharpness", &mut r.shadow_softness, &mut state.settings_dirty);
+                show_int_range(ui, "AO Steps", &mut state.settings.rendering.ao_steps, &mut state.settings_dirty);
+                show_float_range(ui, "AO Intensity", &mut state.settings.rendering.ao_intensity, &mut state.settings_dirty);
             }
 
             ui.separator();

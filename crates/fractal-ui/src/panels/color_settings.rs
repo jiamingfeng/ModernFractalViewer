@@ -2,7 +2,7 @@
 
 use crate::UiState;
 use egui::Ui;
-use fractal_core::sdf::PALETTE_PRESETS;
+use fractal_core::sdf::{PALETTE_PRESETS};
 
 pub struct ColorSettingsPanel;
 
@@ -12,7 +12,6 @@ impl ColorSettingsPanel {
 
         egui::CollapsingHeader::new("Colors").default_open(true).show(ui, |ui| {
             let color_ranges = &state.settings.color;
-            let lighting_ranges = &state.settings.lighting;
             let color_config = &mut state.color_config;
 
             // Color mode selector
@@ -145,114 +144,6 @@ impl ColorSettingsPanel {
                     changed = true;
                 }
             });
-
-            ui.add_space(5.0);
-
-            // Lighting settings
-            ui.label("Lighting:");
-
-            let lighting = &mut state.lighting_config;
-
-            // Lighting model selector
-            ui.horizontal(|ui| {
-                ui.label("Model:");
-                egui::ComboBox::from_id_salt("lighting_model")
-                    .selected_text(match lighting.lighting_model {
-                        0 => "Blinn-Phong",
-                        1 => "PBR (GGX)",
-                        _ => "Unknown",
-                    })
-                    .show_ui(ui, |ui| {
-                        if ui.selectable_value(&mut lighting.lighting_model, 0, "Blinn-Phong").clicked() {
-                            changed = true;
-                        }
-                        if ui.selectable_value(&mut lighting.lighting_model, 1, "PBR (GGX)").clicked() {
-                            changed = true;
-                        }
-                    });
-            });
-
-            // Shared: ambient
-            ui.horizontal(|ui| {
-                ui.label("Ambient Light:");
-                if ui.add(lighting_ranges.ambient.slider(&mut lighting.ambient)).changed() {
-                    changed = true;
-                }
-            });
-
-            if lighting.lighting_model == 0 {
-                // Blinn-Phong specific
-                ui.horizontal(|ui| {
-                    ui.label("Direct Light:");
-                    if ui.add(lighting_ranges.diffuse.slider(&mut lighting.diffuse)).changed() {
-                        changed = true;
-                    }
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Reflection:");
-                    if ui.add(lighting_ranges.specular.slider(&mut lighting.specular)).changed() {
-                        changed = true;
-                    }
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Gloss:");
-                    if ui.add(lighting_ranges.shininess.slider(&mut lighting.shininess)).changed() {
-                        changed = true;
-                    }
-                });
-            } else {
-                // PBR specific
-                ui.horizontal(|ui| {
-                    ui.label("Roughness:");
-                    if ui.add(lighting_ranges.roughness.slider(&mut lighting.roughness)).changed() {
-                        changed = true;
-                    }
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Metallic:");
-                    if ui.add(lighting_ranges.metallic.slider(&mut lighting.metallic)).changed() {
-                        changed = true;
-                    }
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Light Intensity:");
-                    if ui.add(lighting_ranges.light_intensity.slider(&mut lighting.light_intensity)).changed() {
-                        changed = true;
-                    }
-                });
-            }
-
-            // Shared: shadow softness
-            ui.horizontal(|ui| {
-                ui.label("Shadow Softness:");
-                if ui.add(lighting_ranges.shadow_softness.slider(&mut lighting.shadow_softness)).changed() {
-                    changed = true;
-                }
-            });
-
-            // Light direction (editable XYZ)
-            ui.horizontal(|ui| {
-                ui.label("Light Dir:");
-                let dir = &mut lighting.light_dir;
-                let mut dir_changed = false;
-                dir_changed |= ui.add(egui::DragValue::new(&mut dir[0]).speed(0.01).prefix("x:")).changed();
-                dir_changed |= ui.add(egui::DragValue::new(&mut dir[1]).speed(0.01).prefix("y:")).changed();
-                dir_changed |= ui.add(egui::DragValue::new(&mut dir[2]).speed(0.01).prefix("z:")).changed();
-                if dir_changed {
-                    // Normalize
-                    let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
-                    if len > 0.001 {
-                        dir[0] /= len;
-                        dir[1] /= len;
-                        dir[2] /= len;
-                    }
-                    changed = true;
-                }
-            });
-
-            if state.light_control_active {
-                ui.small("Hold L + drag mouse to change light direction");
-            }
 
             ui.add_space(4.0);
 

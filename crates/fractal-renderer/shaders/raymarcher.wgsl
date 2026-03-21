@@ -87,9 +87,11 @@ struct Uniforms {
     light_intensity: f32,
     shadow_softness: f32,
 
-    // Reserved (76 bytes at offset 436)
-    _res_a: f32,
-    _res_b: f32,
+    // LOD (8 bytes at offset 436)
+    lod_enabled: u32,
+    lod_scale: f32,
+
+    // Reserved (68 bytes at offset 444)
     _res_c: f32,
     _reserved1: vec4<f32>,
     _reserved2: vec4<f32>,
@@ -99,6 +101,10 @@ struct Uniforms {
 
 @group(0) @binding(0)
 var<uniform> u: Uniforms;
+
+// LOD-controlled iteration count for SDF evaluation.
+// Set by ray_march() and render_sample() based on pixel footprint.
+var<private> effective_iterations: u32;
 
 // ============================================================================
 // VERTEX SHADER - Fullscreen Triangle
@@ -178,9 +184,9 @@ fn sdf_mandelbulb(pos: vec3<f32>) -> vec2<f32> {
     var trap = 1e10; // Orbit trap for coloring
     
     let power = u.power;
-    let iterations = u.iterations;
+    let iterations = effective_iterations;
     let bailout = u.bailout;
-    
+
     for (var i = 0u; i < iterations; i = i + 1u) {
         r = length(z);
         if (r > bailout) {
@@ -219,7 +225,7 @@ fn sdf_mandelbulb(pos: vec3<f32>) -> vec2<f32> {
 // Menger Sponge SDF
 fn sdf_menger(pos: vec3<f32>) -> vec2<f32> {
     var z = pos;
-    let iterations = u.iterations;
+    let iterations = effective_iterations;
     var trap = 1e10;
     
     // Start with a box
@@ -251,8 +257,8 @@ fn sdf_julia(pos: vec3<f32>) -> vec2<f32> {
     let c = u.julia_c;
     var dz = 1.0;
     var trap = 1e10;
-    
-    let iterations = u.iterations;
+
+    let iterations = effective_iterations;
     
     for (var i = 0u; i < iterations; i = i + 1u) {
         // Update running derivative: dz = 2 * |z| * dz
@@ -290,7 +296,7 @@ fn sdf_mandelbox(pos: vec3<f32>) -> vec2<f32> {
     let scale = u.scale;
     let fold_limit = u.fold_limit;
     let min_radius_sq = u.min_radius_sq;
-    let iterations = u.iterations;
+    let iterations = effective_iterations;
     
     for (var i = 0u; i < iterations; i = i + 1u) {
         // Box fold
@@ -321,7 +327,7 @@ fn sdf_mandelbox(pos: vec3<f32>) -> vec2<f32> {
 // Sierpinski Tetrahedron SDF
 fn sdf_sierpinski(pos: vec3<f32>) -> vec2<f32> {
     var z = pos;
-    let iterations = u.iterations;
+    let iterations = effective_iterations;
     let scale = u.scale;
     var trap = 1e10;
     
@@ -355,7 +361,7 @@ fn sdf_sierpinski(pos: vec3<f32>) -> vec2<f32> {
 // Apollonian Gasket SDF (sphere packing fractal)
 fn sdf_apollonian(pos: vec3<f32>) -> vec2<f32> {
     var z = pos;
-    let iterations = u.iterations;
+    let iterations = effective_iterations;
     var trap = 1e10;
     var s = 1.0;
     
@@ -421,33 +427,57 @@ fn ray_march(ro: vec3<f32>, rd: vec3<f32>) -> RayMarchResult {
     result.distance = 0.0;
     result.steps = 0u;
     result.trap = 0.0;
-    
+
     var t = u.near_clip;
     let max_steps = u.max_steps;
     let epsilon = u.epsilon;
     let max_distance = u.max_distance;
-    
+
+    // Continuous LOD: pixel angular size determines minimum resolvable detail.
+    // When lod_enabled == 0, lod_factor is 0.0 so adaptive_epsilon == epsilon.
+    // See: iquilezles.org/articles/raymarchingdf
+    let fov_factor = tan(u.camera_fov * 0.5);
+    let pixel_angular_size = 2.0 * fov_factor / u.resolution.y;
+    let lod_factor = f32(u.lod_enabled) * u.lod_scale * pixel_angular_size;
+
+    effective_iterations = u.iterations;
+
     for (var i = 0u; i < max_steps; i = i + 1u) {
+        // LOD iteration reduction: fewer SDF iterations when pixel footprint is
+        // large relative to epsilon. Each removed iteration halves the detail
+        // frequency, filtering sub-pixel chaos from the SDF itself.
+        if (u.lod_enabled != 0u) {
+            let pixel_footprint = t * pixel_angular_size;
+            let lod_ratio = pixel_footprint * u.lod_scale / epsilon;
+            let reduce = u32(clamp(log2(max(1.0, lod_ratio)), 0.0, f32(u.iterations) - 3.0));
+            effective_iterations = u.iterations - reduce;
+        }
+
         let pos = ro + rd * t;
         let res = map(pos);
         let d = res.x;
-        
-        if (d < epsilon) {
+
+        // Adaptive epsilon: grows linearly with distance when LOD is enabled
+        let adaptive_epsilon = epsilon + t * lod_factor;
+
+        if (d < adaptive_epsilon) {
             result.hit = true;
             result.distance = t;
             result.steps = i;
             result.trap = res.y;
             return result;
         }
-        
+
         if (t > max_distance) {
             break;
         }
-        
-        t = t + d * 0.9; // Slight relaxation for stability
+
+        // Minimum step size prevents micro-stepping through noisy SDF regions
+        let min_step = select(0.0, adaptive_epsilon * 0.2, u.lod_enabled != 0u);
+        t = t + max(d * 0.9, min_step);
         result.steps = i;
     }
-    
+
     result.distance = t;
     return result;
 }
@@ -460,7 +490,13 @@ fn calc_normal(pos: vec3<f32>, t: f32) -> vec3<f32> {
     // Tetrahedron technique (4 SDF evals instead of 6) with distance-proportional
     // epsilon for LoD filtering. Prevents banding at far distances and aliasing
     // at near distances. See: iquilezles.org/articles/normalsSDF
-    let h = max(u.normal_epsilon * t, 1e-7);
+    // When LOD is enabled, clamp h to at least the pixel footprint AND half the
+    // adaptive hit epsilon, so normals never resolve finer than the hit detection.
+    let pixel_h = 2.0 * tan(u.camera_fov * 0.5) / u.resolution.y * t;
+    let adaptive_eps = u.epsilon + t * f32(u.lod_enabled) * u.lod_scale
+                       * 2.0 * tan(u.camera_fov * 0.5) / u.resolution.y;
+    let lod_h = select(0.0, max(pixel_h, adaptive_eps * 0.5), u.lod_enabled != 0u);
+    let h = max(max(u.normal_epsilon * t, lod_h), 1e-7);
     let k = vec2<f32>(1.0, -1.0);
     return normalize(
         k.xyy * map(pos + k.xyy * h).x +
@@ -495,15 +531,16 @@ fn calc_ao(pos: vec3<f32>, nor: vec3<f32>) -> f32 {
 
 fn calc_shadow(ro: vec3<f32>, rd: vec3<f32>) -> f32 {
     // Improved soft shadows with inner penumbra (IQ, nurof3n).
-    // Allows the ray to penetrate the SDF for smooth contact shadows.
-    // w = shadow_softness (higher = softer, lower = harder).
+    // See: iquilezles.org/articles/rmshadows
+    // k = shadow_softness: higher = sharper/harder shadows, lower = softer.
+    // Typical range: 2 (very soft) to 32+ (sharp).
     var res = 1.0;
     var t = 0.01;
-    let w = u.shadow_softness;
+    let k = u.shadow_softness;
 
     for (var i = 0u; i < 64u; i = i + 1u) {
         let h = map(ro + t * rd).x;
-        res = min(res, h / (w * t));
+        res = min(res, h * k / t);
         t = t + clamp(h, 0.005, 0.50);
         if (res < -1.0 || t > 20.0) {
             break;
@@ -712,6 +749,7 @@ fn shade_pbr(
 // ============================================================================
 
 fn render_sample(uv: vec2<f32>) -> vec3<f32> {
+    effective_iterations = u.iterations;
     let ro = u.camera_pos.xyz;
     let rd = get_ray_direction(uv);
     let result = ray_march(ro, rd);
@@ -724,6 +762,15 @@ fn render_sample(uv: vec2<f32>) -> vec3<f32> {
         let grad = 0.5 + 0.5 * rd.y;
         col = bg * grad;
     } else {
+        // Set LOD iterations at hit distance for normal/AO/shadow evaluation
+        if (u.lod_enabled != 0u) {
+            let pixel_angular_size = 2.0 * tan(u.camera_fov * 0.5) / u.resolution.y;
+            let pixel_footprint = result.distance * pixel_angular_size;
+            let lod_ratio = pixel_footprint * u.lod_scale / u.epsilon;
+            let reduce = u32(clamp(log2(max(1.0, lod_ratio)), 0.0, f32(u.iterations) - 3.0));
+            effective_iterations = u.iterations - reduce;
+        }
+
         // Hit point and normal
         let pos = ro + rd * result.distance;
         let nor = calc_normal(pos, result.distance);

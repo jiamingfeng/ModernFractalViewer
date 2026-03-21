@@ -266,6 +266,7 @@ pub struct RenderingRanges {
     pub ao_intensity: FloatRange,
     pub normal_epsilon: FloatRange,
     pub sample_counts: Vec<u32>,
+    pub lod_scale: FloatRange,
 }
 
 impl Default for RenderingRanges {
@@ -290,6 +291,13 @@ impl Default for RenderingRanges {
                 logarithmic: false,
             },
             sample_counts: vec![1, 2, 4],
+            lod_scale: FloatRange {
+                min: 0.1,
+                max: 5.0,
+                speed: Some(0.01),
+                decimals: Some(2),
+                logarithmic: false,
+            },
         }
     }
 }

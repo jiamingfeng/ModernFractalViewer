@@ -23,6 +23,11 @@ pub struct RayMarchConfig {
     pub normal_epsilon: f32,
     /// Number of samples per pixel for super-sampling (1, 2, or 4)
     pub sample_count: u32,
+    /// Whether continuous Level of Detail is enabled
+    /// (scales epsilon with pixel footprint at distance)
+    pub lod_enabled: bool,
+    /// LOD aggressiveness multiplier (1.0 = pixel-exact, >1 = more aggressive)
+    pub lod_scale: f32,
 }
 
 impl Default for RayMarchConfig {
@@ -35,6 +40,8 @@ impl Default for RayMarchConfig {
             ao_intensity: 0.2,
             normal_epsilon: 0.0001,
             sample_count: 1,
+            lod_enabled: true,
+            lod_scale: 1.0,
         }
     }
 }
@@ -61,7 +68,7 @@ pub struct LightingConfig {
     pub metallic: f32,
     /// Direct light brightness (PBR)
     pub light_intensity: f32,
-    /// Soft shadow width parameter (higher = softer, shared by both models)
+    /// Shadow sharpness factor (IQ's k parameter). Higher = sharper, lower = softer.
     pub shadow_softness: f32,
 }
 
@@ -73,7 +80,7 @@ impl Default for LightingConfig {
             diffuse: 0.8,
             specular: 0.3,
             shininess: 32.0,
-            lighting_model: 0,
+            lighting_model: 1,
             roughness: 0.5,
             metallic: 0.0,
             light_intensity: 1.5,
