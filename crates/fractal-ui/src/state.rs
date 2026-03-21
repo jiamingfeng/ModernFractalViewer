@@ -71,6 +71,8 @@ pub struct UiState {
     pub confirming_overwrite: Option<(String, String)>,
     /// Confirmation dialog state for delete (session id, session name)
     pub confirming_delete: Option<(String, String)>,
+    /// Version info string for display (e.g. "v0.1.1 (abc1234)")
+    pub version_info: String,
 }
 
 impl Default for UiState {
@@ -94,6 +96,7 @@ impl Default for UiState {
             sessions_dirty: true,
             confirming_overwrite: None,
             confirming_delete: None,
+            version_info: String::new(),
         }
     }
 }

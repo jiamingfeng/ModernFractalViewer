@@ -104,7 +104,8 @@ fn main() {
     // Prepare window attributes (fullscreen-like)
     let mut window_attrs = winit::window::WindowAttributes::default()
         .with_title("Modern Fractal Viewer")
-        .with_maximized(true);
+        .with_inner_size(winit::dpi::LogicalSize::new(800u32, 450u32))
+        .with_resizable(false);
 
     // Set the window icon (taskbar / title bar icon)
     if let Some(icon) = load_window_icon() {

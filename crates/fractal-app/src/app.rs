@@ -18,6 +18,21 @@ use winit::window::Window;
 use crate::input::InputState;
 use crate::session_manager::SessionManager;
 
+/// Minimum time (seconds) the splash screen is displayed.
+const SPLASH_MIN_DURATION_SECS: f32 = 2.0;
+
+/// Splash screen state, present during the first few frames of rendering.
+struct SplashState {
+    /// Background image texture (fractal render)
+    background: egui::TextureHandle,
+    /// Background image aspect ratio (width / height)
+    bg_aspect: f32,
+    /// Small app icon for bottom-right corner
+    icon: egui::TextureHandle,
+    /// Current loading status message
+    status: String,
+}
+
 /// Main application state
 pub struct App {
     window: Arc<Window>,
@@ -38,6 +53,10 @@ pub struct App {
     needs_initial_configure: bool,
     session_manager: Option<SessionManager>,
     thumbnail_capture: ThumbnailCapture,
+    /// Splash screen state (Some during loading, None after transition)
+    splash: Option<SplashState>,
+    /// Number of frames rendered (used to manage splash lifecycle)
+    rendered_frames: u32,
 }
 
 impl App {
@@ -47,7 +66,37 @@ impl App {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         // Initialize wgpu render context
         let render_ctx = RenderContext::new(window.clone()).await?;
-        
+
+        // Immediately clear the surface to black to replace the OS-default white
+        // window background. This runs before pipeline/egui setup so it's as early
+        // as possible after the GPU is ready.
+        {
+            if let Ok(output) = render_ctx.surface.get_current_texture() {
+                let view = output.texture.create_view(&Default::default());
+                let mut encoder = render_ctx.device.create_command_encoder(
+                    &wgpu::CommandEncoderDescriptor { label: Some("Initial Clear") },
+                );
+                {
+                    let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Black Clear"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+                }
+                render_ctx.queue.submit(std::iter::once(encoder.finish()));
+                output.present();
+            }
+        }
+
         // Create fractal rendering pipeline
         let pipeline = FractalPipeline::new(&render_ctx);
         
@@ -71,7 +120,8 @@ impl App {
         );
         
         // Initialize state
-        let ui_state = UiState::default();
+        let mut ui_state = UiState::default();
+        ui_state.version_info = format!("{} ({})", env!("APP_VERSION"), env!("APP_COMMIT"));
         let camera = Camera::default();
 
         // Session save/load
@@ -114,6 +164,50 @@ impl App {
             180,
         );
 
+        // Load splash screen textures (native only; WASM uses HTML loading indicator)
+        #[cfg(not(target_arch = "wasm32"))]
+        let splash = {
+            let splash_bytes = include_bytes!("../assets/splash.png");
+            let splash_img = image::load_from_memory(splash_bytes)
+                .expect("Failed to decode splash image")
+                .into_rgba8();
+            let splash_size = [splash_img.width() as usize, splash_img.height() as usize];
+            let bg_aspect = splash_size[0] as f32 / splash_size[1] as f32;
+            let splash_pixels: Vec<egui::Color32> = splash_img
+                .pixels()
+                .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+                .collect();
+            let background = egui_ctx.load_texture(
+                "splash_bg",
+                egui::ColorImage { size: splash_size, pixels: splash_pixels },
+                egui::TextureOptions::LINEAR,
+            );
+
+            let icon_bytes = include_bytes!("../assets/icon.png");
+            let icon_img = image::load_from_memory(icon_bytes)
+                .expect("Failed to decode icon image")
+                .into_rgba8();
+            let icon_size = [icon_img.width() as usize, icon_img.height() as usize];
+            let icon_pixels: Vec<egui::Color32> = icon_img
+                .pixels()
+                .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+                .collect();
+            let icon = egui_ctx.load_texture(
+                "splash_icon",
+                egui::ColorImage { size: icon_size, pixels: icon_pixels },
+                egui::TextureOptions::LINEAR,
+            );
+
+            Some(SplashState {
+                background,
+                bg_aspect,
+                icon,
+                status: "Loading...".to_string(),
+            })
+        };
+        #[cfg(target_arch = "wasm32")]
+        let splash: Option<SplashState> = None;
+
         Ok(Self {
             window,
             render_ctx,
@@ -130,6 +224,8 @@ impl App {
             needs_initial_configure: true,
             session_manager,
             thumbnail_capture,
+            splash,
+            rendered_frames: 0,
         })
     }
     
@@ -367,130 +463,330 @@ impl App {
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.render_ctx.surface.get_current_texture()?;
         let view = output.texture.create_view(&Default::default());
-        
-        // Update uniforms
-        let time = self.start_time.elapsed().as_secs_f32();
         let (width, height) = self.render_ctx.size();
-        
-        self.pipeline.uniforms.update_camera(&self.camera, self.render_ctx.aspect_ratio());
-        self.pipeline.uniforms.update_resolution(width, height);
-        self.pipeline.uniforms.update_time(time);
-        self.pipeline.uniforms.update_fractal(&self.ui_state.fractal_params);
-        self.pipeline.uniforms.update_ray_march(&self.ui_state.ray_march_config);
-        self.pipeline.uniforms.update_lighting(&self.ui_state.lighting_config);
-        self.pipeline.uniforms.update_color(&self.ui_state.color_config);
-        self.pipeline.uniforms.frame_count = self.pipeline.uniforms.frame_count.wrapping_add(1);
-        self.pipeline.update_uniforms(&self.render_ctx.queue);
-        
-        // Create encoder for fractal rendering
+
         let mut encoder = self.render_ctx.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor {
-                label: Some("Fractal Encoder"),
+                label: Some("Render Encoder"),
             }
         );
-        
-        // Render fractal
-        self.pipeline.render(&mut encoder, &view);
-        
-        // Render egui UI on top of the fractal.
-        // Always run egui so the toggle button is visible even when the panel is collapsed.
-        {
-            let raw_input = self.egui_state.take_egui_input(&self.window);
-            let full_output = self.egui_ctx.run(raw_input, |ctx| {
-                FractalPanel::show(ctx, &mut self.ui_state);
 
-                // Debug overlay
-                if self.ui_state.show_debug {
-                    egui::Window::new("Debug")
-                        .anchor(egui::Align2::RIGHT_TOP, [-10.0, 10.0])
-                        .show(ctx, |ui| {
-                            ui.label(format!("FPS: {:.1}", 1.0 / (self.last_frame.elapsed().as_secs_f32() + 0.001)));
-                            ui.label(format!("Camera: ({:.2}, {:.2}, {:.2})",
-                                self.camera.position.x,
-                                self.camera.position.y,
-                                self.camera.position.z));
-                            ui.label(format!("Zoom: {:.4}x", 1.0 / self.camera.distance));
-                        });
+        if self.splash.is_some() {
+            // Frame 1: warm up the fractal pipeline by issuing a hidden draw.
+            // The driver JIT-compiles the shader on first use; the splash paints over it.
+            if self.rendered_frames == 1 {
+                self.pipeline.uniforms.update_camera(&self.camera, self.render_ctx.aspect_ratio());
+                self.pipeline.uniforms.update_resolution(width, height);
+                self.pipeline.uniforms.update_time(0.0);
+                self.pipeline.uniforms.update_fractal(&self.ui_state.fractal_params);
+                self.pipeline.uniforms.update_ray_march(&self.ui_state.ray_march_config);
+                self.pipeline.uniforms.update_lighting(&self.ui_state.lighting_config);
+                self.pipeline.uniforms.update_color(&self.ui_state.color_config);
+                self.pipeline.update_uniforms(&self.render_ctx.queue);
+                self.pipeline.render(&mut encoder, &view);
+                if let Some(ref mut splash) = self.splash {
+                    splash.status = "Compiling shaders...".to_string();
                 }
-            });
-            
-            self.egui_state.handle_platform_output(&self.window, full_output.platform_output);
-            
-            let clipped_primitives = self.egui_ctx.tessellate(
-                full_output.shapes,
-                self.egui_ctx.pixels_per_point(),
-            );
-            
-            // Upload egui textures
-            for (id, delta) in &full_output.textures_delta.set {
-                self.egui_renderer.update_texture(
+            }
+
+            self.render_splash_frame(&mut encoder, &view);
+
+            // Transition out of splash after minimum display time
+            if self.start_time.elapsed().as_secs_f32() >= SPLASH_MIN_DURATION_SECS {
+                self.splash = None;
+                self.window.set_maximized(true);
+                self.window.set_resizable(true);
+                log::info!("Splash screen dismissed");
+            }
+        } else {
+            // === Normal fractal + egui rendering ===
+            let time = self.start_time.elapsed().as_secs_f32();
+
+            self.pipeline.uniforms.update_camera(&self.camera, self.render_ctx.aspect_ratio());
+            self.pipeline.uniforms.update_resolution(width, height);
+            self.pipeline.uniforms.update_time(time);
+            self.pipeline.uniforms.update_fractal(&self.ui_state.fractal_params);
+            self.pipeline.uniforms.update_ray_march(&self.ui_state.ray_march_config);
+            self.pipeline.uniforms.update_lighting(&self.ui_state.lighting_config);
+            self.pipeline.uniforms.update_color(&self.ui_state.color_config);
+            self.pipeline.uniforms.frame_count = self.pipeline.uniforms.frame_count.wrapping_add(1);
+            self.pipeline.update_uniforms(&self.render_ctx.queue);
+
+            // Render fractal
+            self.pipeline.render(&mut encoder, &view);
+
+            // Render egui UI on top of the fractal
+            {
+                let raw_input = self.egui_state.take_egui_input(&self.window);
+                let full_output = self.egui_ctx.run(raw_input, |ctx| {
+                    FractalPanel::show(ctx, &mut self.ui_state);
+
+                    // Debug overlay
+                    if self.ui_state.show_debug {
+                        egui::Window::new("Debug")
+                            .anchor(egui::Align2::RIGHT_TOP, [-10.0, 10.0])
+                            .show(ctx, |ui| {
+                                ui.label(format!("Version: {}", self.ui_state.version_info));
+                                ui.label(format!("FPS: {:.1}", 1.0 / (self.last_frame.elapsed().as_secs_f32() + 0.001)));
+                                ui.label(format!("Camera: ({:.2}, {:.2}, {:.2})",
+                                    self.camera.position.x,
+                                    self.camera.position.y,
+                                    self.camera.position.z));
+                                ui.label(format!("Zoom: {:.4}x", 1.0 / self.camera.distance));
+                            });
+                    }
+                });
+
+                self.egui_state.handle_platform_output(&self.window, full_output.platform_output);
+
+                let clipped_primitives = self.egui_ctx.tessellate(
+                    full_output.shapes,
+                    self.egui_ctx.pixels_per_point(),
+                );
+
+                for (id, delta) in &full_output.textures_delta.set {
+                    self.egui_renderer.update_texture(
+                        &self.render_ctx.device,
+                        &self.render_ctx.queue,
+                        *id,
+                        delta,
+                    );
+                }
+
+                let screen_descriptor = egui_wgpu::ScreenDescriptor {
+                    size_in_pixels: [width, height],
+                    pixels_per_point: self.window.scale_factor() as f32,
+                };
+
+                self.egui_renderer.update_buffers(
                     &self.render_ctx.device,
                     &self.render_ctx.queue,
-                    *id,
-                    delta,
-                );
-            }
-            
-            let screen_descriptor = egui_wgpu::ScreenDescriptor {
-                size_in_pixels: [width, height],
-                pixels_per_point: self.window.scale_factor() as f32,
-            };
-            
-            self.egui_renderer.update_buffers(
-                &self.render_ctx.device,
-                &self.render_ctx.queue,
-                &mut encoder,
-                &clipped_primitives,
-                &screen_descriptor,
-            );
-            
-            // Render egui - use forget_lifetime() to convert render pass to 'static as required by egui-wgpu
-            {
-                let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Egui Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load, // Don't clear, overlay on top
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-                
-                // SAFETY: egui-wgpu requires 'static lifetime for the render pass.
-                // forget_lifetime() is the official way to convert a render pass to 'static.
-                // The render pass internally keeps all referenced resources alive.
-                let mut render_pass = render_pass.forget_lifetime();
-                
-                self.egui_renderer.render(
-                    &mut render_pass,
+                    &mut encoder,
                     &clipped_primitives,
                     &screen_descriptor,
                 );
-            } // render_pass is dropped here before encoder.finish()
-            
-            // Free egui textures
-            for id in &full_output.textures_delta.free {
-                self.egui_renderer.free_texture(id);
+
+                {
+                    let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Egui Render Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+
+                    let mut render_pass = render_pass.forget_lifetime();
+                    self.egui_renderer.render(
+                        &mut render_pass,
+                        &clipped_primitives,
+                        &screen_descriptor,
+                    );
+                }
+
+                for id in &full_output.textures_delta.free {
+                    self.egui_renderer.free_texture(id);
+                }
             }
         }
-        
-        // Submit commands
+
+        // Submit and present
         self.render_ctx.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-        
-        // Sync UI camera changes back to app camera
-        // This picks up reset, view buttons, slider changes from the egui UI
-        self.camera = self.ui_state.camera.clone();
 
-        // Handle session save/load/delete requests from the UI
-        self.handle_session_requests();
+        self.rendered_frames = self.rendered_frames.saturating_add(1);
+
+        // Only process app logic after splash is dismissed
+        if self.splash.is_none() {
+            self.camera = self.ui_state.camera.clone();
+            self.handle_session_requests();
+        }
 
         Ok(())
+    }
+
+    /// Render the splash screen: background image + bottom overlay with text and icon.
+    fn render_splash_frame(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+    ) {
+        let (width, height) = self.render_ctx.size();
+
+        // Clear to black on every splash frame. Each swapchain texture may be
+        // uninitialized (white) on first use, and the swapchain has multiple buffers.
+        {
+            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Splash Clear"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
+
+        // Build egui splash UI
+        let raw_input = self.egui_state.take_egui_input(&self.window);
+        let splash = self.splash.as_ref().unwrap();
+        let bg_tex_id = splash.background.id();
+        let bg_aspect = splash.bg_aspect;
+        let icon_tex_id = splash.icon.id();
+        let status = splash.status.clone();
+        let version_info = self.ui_state.version_info.clone();
+
+        let full_output = self.egui_ctx.run(raw_input, |ctx| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
+                .show(ctx, |ui| {
+                    let rect = ui.max_rect();
+
+                    // 1) Background image — scale to cover
+                    let rect_aspect = rect.width() / rect.height();
+                    let (img_w, img_h) = if rect_aspect > bg_aspect {
+                        (rect.width(), rect.width() / bg_aspect)
+                    } else {
+                        (rect.height() * bg_aspect, rect.height())
+                    };
+                    let img_rect = egui::Rect::from_center_size(
+                        rect.center(),
+                        egui::vec2(img_w, img_h),
+                    );
+                    ui.painter().image(
+                        bg_tex_id,
+                        img_rect,
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        egui::Color32::WHITE,
+                    );
+
+                    // 2) Semi-transparent dark gradient at bottom for text readability
+                    let gradient_height = 100.0;
+                    let gradient_rect = egui::Rect::from_min_max(
+                        egui::pos2(rect.left(), rect.bottom() - gradient_height),
+                        rect.right_bottom(),
+                    );
+                    ui.painter().rect_filled(
+                        gradient_rect,
+                        0.0,
+                        egui::Color32::from_black_alpha(180),
+                    );
+
+                    // 3) Bottom-left: App name, version, status
+                    let margin = 16.0;
+                    let text_bottom = rect.bottom() - margin;
+                    let text_left = rect.left() + margin;
+
+                    ui.painter().text(
+                        egui::pos2(text_left, text_bottom - 50.0),
+                        egui::Align2::LEFT_BOTTOM,
+                        "Modern Fractal Viewer",
+                        egui::FontId::proportional(20.0),
+                        egui::Color32::WHITE,
+                    );
+
+                    ui.painter().text(
+                        egui::pos2(text_left, text_bottom - 28.0),
+                        egui::Align2::LEFT_BOTTOM,
+                        &version_info,
+                        egui::FontId::proportional(13.0),
+                        egui::Color32::from_gray(180),
+                    );
+
+                    ui.painter().text(
+                        egui::pos2(text_left, text_bottom - 8.0),
+                        egui::Align2::LEFT_BOTTOM,
+                        &status,
+                        egui::FontId::proportional(13.0),
+                        egui::Color32::from_gray(140),
+                    );
+
+                    // 4) Bottom-right: icon + copyright
+                    let right_margin = rect.right() - margin;
+                    let icon_size = 40.0;
+                    let icon_rect = egui::Rect::from_min_size(
+                        egui::pos2(right_margin - icon_size, text_bottom - 62.0),
+                        egui::vec2(icon_size, icon_size),
+                    );
+                    ui.painter().image(
+                        icon_tex_id,
+                        icon_rect,
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        egui::Color32::WHITE,
+                    );
+
+                    ui.painter().text(
+                        egui::pos2(right_margin, text_bottom - 8.0),
+                        egui::Align2::RIGHT_BOTTOM,
+                        "Copyright \u{00A9} 2025 jiamingfeng. MIT",
+                        egui::FontId::proportional(11.0),
+                        egui::Color32::from_gray(140),
+                    );
+                });
+        });
+
+        // Tessellate and render egui
+        self.egui_state.handle_platform_output(&self.window, full_output.platform_output);
+        let clipped = self.egui_ctx.tessellate(
+            full_output.shapes,
+            self.egui_ctx.pixels_per_point(),
+        );
+
+        for (id, delta) in &full_output.textures_delta.set {
+            self.egui_renderer.update_texture(
+                &self.render_ctx.device,
+                &self.render_ctx.queue,
+                *id,
+                delta,
+            );
+        }
+
+        let screen_descriptor = egui_wgpu::ScreenDescriptor {
+            size_in_pixels: [width, height],
+            pixels_per_point: self.window.scale_factor() as f32,
+        };
+
+        self.egui_renderer.update_buffers(
+            &self.render_ctx.device,
+            &self.render_ctx.queue,
+            encoder,
+            &clipped,
+            &screen_descriptor,
+        );
+
+        {
+            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Splash Egui Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            let mut render_pass = render_pass.forget_lifetime();
+            self.egui_renderer.render(&mut render_pass, &clipped, &screen_descriptor);
+        }
+
+        for id in &full_output.textures_delta.free {
+            self.egui_renderer.free_texture(id);
+        }
     }
 
     fn handle_session_requests(&mut self) {
