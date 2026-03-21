@@ -64,8 +64,8 @@ The project is a 4-crate Rust workspace. Data flows: `fractal-core` (math/types)
 
 ### Crates
 
-- **`fractal-core`** — Platform-agnostic math: camera, SDF primitives, and all 6 fractal definitions (`FractalType` enum + `FractalParams` struct). No GPU dependencies.
-- **`fractal-renderer`** — wgpu context (`context.rs`), render pipeline (`pipeline.rs`), GPU uniform buffers (`uniforms.rs`), and WGSL shaders (`shaders/`).
+- **`fractal-core`** — Platform-agnostic math: camera, SDF primitives, all 6 fractal definitions (`FractalType` enum + `FractalParams` struct), mesh data types and export (glTF). No GPU dependencies.
+- **`fractal-renderer`** — wgpu context (`context.rs`), render pipeline (`pipeline.rs`), GPU uniform buffers (`uniforms.rs`), compute pipeline for SDF volume sampling (`compute.rs`), and WGSL shaders (`shaders/`). SDF functions are shared between `raymarcher.wgsl` and `sdf_volume.wgsl` via `sdf_common.wgsl`.
 - **`fractal-ui`** — egui immediate-mode UI panels for fractal params, camera, and color settings. `state.rs` manages `UiState`.
 - **`fractal-app`** — Ties everything together. `app.rs` is the main application loop. `main.rs` is the desktop/WASM entry; `lib.rs` exposes the Android entry point (`android_main`).
 
@@ -232,6 +232,15 @@ Trait-based storage abstraction (`StorageBackend`) with platform-specific implem
 
 - **Files**: `fractal-app/src/session_manager.rs` (StorageBackend trait, FileSystemStorage for native, LocalStorageBackend for WASM), `fractal-app/src/config_manager.rs` (settings TOML I/O, WASM localStorage)
 - **Paths**: Native: `{dirs::data_dir()}/ModernFractalViewer/` (saves/ for sessions, settings.toml for config). Android: `{internal_data_path}/` (passed via _data_dir_override). WASM: localStorage keys `fractal_save_*` and `fractal_settings`.
+
+### Mesh Export (SDF → Marching Cubes → glTF)
+
+Exports the current fractal's SDF isosurface as a triangle mesh in glTF 2.0 Binary (.glb) format. The pipeline has three stages: (1) GPU compute shader samples the SDF on a 3D grid, (2) CPU Marching Cubes extracts the triangle mesh, (3) glTF exporter writes the GLB file. Per-vertex colors are computed from orbit trap values using the current palette. Future formats (STL, FBX) can be added alongside glTF.
+
+- **Files**: `fractal-core/src/mesh/mod.rs` (MeshData, ExportConfig, default_bounds()), `fractal-core/src/mesh/marching_cubes.rs` (extract_mesh — **currently a stub returning empty mesh**), `fractal-core/src/mesh/gltf_export.rs` (GLB writer using gltf-json), `fractal-core/src/mesh/palette.rs` (CPU-side palette sampling matching WGSL), `fractal-renderer/src/compute.rs` (SdfVolumeCompute GPU pipeline), `fractal-renderer/shaders/sdf_volume.wgsl` (compute shader), `fractal-renderer/shaders/sdf_common.wgsl` (shared SDF functions), `fractal-ui/src/panels/export_panel.rs` (UI panel), `fractal-app/src/app.rs` (handle_export_requests, start_export)
+- **Data flow**: UI "Export" button → `pending_export` flag → `start_export()` opens file dialog → GPU compute dispatches SDF volume sampling → `read_volume()` copies results to CPU → `extract_mesh()` runs Marching Cubes → `palette::get_vertex_color()` maps trap values to colors → `gltf_export::export_glb()` writes file. Export runs on a background thread with progress bar.
+- **Platform**: Desktop only (Windows/macOS/Linux). Gated behind `#[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]`. The `rfd` file dialog crate does not support Android or WASM.
+- **Status**: Marching Cubes implementation is a stub — the full lookup table implementation is pending. All other stages (GPU compute, glTF export, UI, app integration) are complete and tested.
 
 ## Testing Guidelines
 

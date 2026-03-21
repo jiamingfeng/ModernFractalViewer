@@ -37,6 +37,8 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 egui-winit = { workspace = true, features = ["clipboard", "links", "wayland", "x11"] }
 dirs.workspace = true
+
+[target.'cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))'.dependencies]
 rfd.workspace = true
 
 [target.'cfg(target_os = "windows")'.build-dependencies]

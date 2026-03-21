@@ -65,13 +65,13 @@ pub struct App {
     /// Shared log buffer for in-app log window
     log_entries: crate::log_capture::LogBuffer,
     /// GPU compute pipeline for SDF volume sampling (mesh export)
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
     sdf_compute: Option<fractal_renderer::compute::SdfVolumeCompute>,
     /// Background export thread handle
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
     export_thread: Option<std::thread::JoinHandle<Result<std::path::PathBuf, String>>>,
     /// Shared export progress (written by worker thread, read by UI)
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
     export_progress: std::sync::Arc<std::sync::Mutex<f32>>,
 }
 
@@ -293,11 +293,11 @@ impl App {
             #[cfg(feature = "hot-reload")]
             hot_reloader,
             log_entries,
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
             sdf_compute: None,
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
             export_thread: None,
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
             export_progress: std::sync::Arc::new(std::sync::Mutex::new(0.0)),
         })
     }
@@ -954,7 +954,7 @@ impl App {
         if self.splash.is_none() {
             self.camera = self.ui_state.camera.clone();
             self.handle_session_requests();
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
             self.handle_export_requests();
             self.save_settings_if_dirty();
 
@@ -1250,7 +1250,7 @@ impl App {
     }
 
     /// Handle mesh export requests from the UI.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
     fn handle_export_requests(&mut self) {
         // Poll running export thread
         if let Some(ref handle) = self.export_thread {
@@ -1292,7 +1292,7 @@ impl App {
     }
 
     /// Starts the mesh export pipeline: GPU SDF sampling → CPU MC → glTF write.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
     fn start_export(&mut self) {
         // Open file dialog
         let path = rfd::FileDialog::new()
