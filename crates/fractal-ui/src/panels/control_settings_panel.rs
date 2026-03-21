@@ -12,14 +12,16 @@ impl ControlSettingsPanel {
         egui::CollapsingHeader::new("Control Settings").default_open(false).show(ui, |ui| {
             ui.small("Customize slider min/max ranges.");
 
-            #[cfg(not(target_arch = "wasm32"))]
-            if ui.small_button("Open Config File").clicked() {
-                state.open_config_requested = true;
-            }
-
-            if ui.checkbox(&mut state.settings.auto_load_last_session, "Auto-load last session").changed() {
-                state.settings_dirty = true;
-            }
+            ui.horizontal(|ui| {
+                #[cfg(not(target_arch = "wasm32"))]
+                if ui.small_button("Open Config File").clicked() {
+                    state.open_config_requested = true;
+                }
+                if ui.small_button("Reset All to Defaults").clicked() {
+                    state.settings = AppSettings::default();
+                    state.settings_dirty = true;
+                }
+            });
 
             ui.add_space(4.0);
             ui.separator();
@@ -99,11 +101,6 @@ impl ControlSettingsPanel {
                 show_float_range(ui, "Dither", &mut r.dither_strength, &mut state.settings_dirty);
             }
 
-            ui.add_space(8.0);
-            if ui.button("Reset All to Defaults").clicked() {
-                state.settings = AppSettings::default();
-                state.settings_dirty = true;
-            }
         });
     }
 }

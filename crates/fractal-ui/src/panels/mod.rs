@@ -63,6 +63,9 @@ impl FractalPanel {
                     egui::ScrollArea::vertical()
                         .max_height(available_height)
                         .show(ui, |ui| {
+                        SessionPanel::show(ui, state);
+
+                        ui.add_space(10.0);
                         changed |= FractalParamsPanel::show(ui, state);
 
                         ui.add_space(10.0);
@@ -73,9 +76,6 @@ impl FractalPanel {
 
                         ui.add_space(10.0);
                         changed |= CameraControlsPanel::show(ui, state);
-
-                        ui.add_space(10.0);
-                        SessionPanel::show(ui, state);
 
                         ui.add_space(10.0);
                         ui.collapsing("Debug", |ui| {

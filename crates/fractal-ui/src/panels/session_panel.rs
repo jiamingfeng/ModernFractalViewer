@@ -11,8 +11,14 @@ impl SessionPanel {
         Self::show_confirmation_dialogs(ui, state);
 
         egui::CollapsingHeader::new("Sessions")
-            .default_open(false)
+            .default_open(true)
             .show(ui, |ui| {
+                // -- Auto-load setting --
+                if ui.checkbox(&mut state.settings.auto_load_last_session, "Auto-load last session").changed() {
+                    state.settings_dirty = true;
+                }
+                ui.add_space(4.0);
+
                 // -- Save New button --
                 if ui.button("Save New Session").clicked() {
                     state.pending_save = true;

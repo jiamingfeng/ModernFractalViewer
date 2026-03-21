@@ -344,9 +344,23 @@ impl App {
                     }
                 }
 
+                // Skip rendering when minimized (0x0 surface)
+                let size = self.window.inner_size();
+                if size.width == 0 || size.height == 0 {
+                    return;
+                }
+
                 self.update();
                 if let Err(e) = self.render() {
-                    log::error!("Render error: {}", e);
+                    match e {
+                        wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost => {
+                            let size = self.window.inner_size();
+                            if size.width > 0 && size.height > 0 {
+                                self.render_ctx.resize(size.width, size.height);
+                            }
+                        }
+                        _ => log::error!("Render error: {}", e),
+                    }
                 }
             }
 

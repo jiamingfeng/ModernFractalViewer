@@ -44,6 +44,11 @@ impl log::Log for LogCapture {
             return;
         }
 
+        // Filter out noisy wgpu driver internals (Vulkan loader warnings, present mode spam)
+        if record.target().starts_with("wgpu_hal") {
+            return;
+        }
+
         let entry = LogEntry {
             level: record.level(),
             target: record.target().to_string(),
