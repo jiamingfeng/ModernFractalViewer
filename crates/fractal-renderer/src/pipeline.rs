@@ -5,8 +5,17 @@ use crate::uniforms::Uniforms;
 use bytemuck;
 use wgpu::{self, util::DeviceExt};
 
-/// The embedded shader source, baked into the binary at compile time.
-const EMBEDDED_SHADER: &str = include_str!("../shaders/raymarcher.wgsl");
+/// The shared SDF definitions (Uniforms, SDF functions, map dispatcher),
+/// prepended to both the render and compute shaders at load time.
+const SDF_COMMON: &str = include_str!("../shaders/sdf_common.wgsl");
+
+/// The render-specific shader code (vertex, fragment, ray marching, lighting).
+const RAYMARCHER: &str = include_str!("../shaders/raymarcher.wgsl");
+
+/// Returns the SDF common source for use by other pipelines (e.g. compute).
+pub fn sdf_common_source() -> &'static str {
+    SDF_COMMON
+}
 
 /// The main rendering pipeline for fractal ray marching
 pub struct FractalPipeline {
@@ -40,40 +49,48 @@ impl FractalPipeline {
         Self::create(device, format)
     }
 
-    /// Resolve the shader source. With `hot-reload` feature, tries loading from
-    /// disk first and falls back to the embedded source.
+    /// Resolve the shader source by concatenating sdf_common.wgsl + raymarcher.wgsl.
+    /// With `hot-reload` feature, tries loading from disk first and falls back to
+    /// the embedded sources.
     fn resolve_shader_source() -> String {
         #[cfg(feature = "hot-reload")]
         {
-            if let Some(path) = Self::shader_path() {
-                if let Ok(source) = std::fs::read_to_string(&path) {
-                    log::info!("Hot-reload: loaded shader from {}", path.display());
-                    return source;
+            if let Some(paths) = Self::shader_paths() {
+                if let (Ok(common), Ok(render)) = (
+                    std::fs::read_to_string(&paths.0),
+                    std::fs::read_to_string(&paths.1),
+                ) {
+                    log::info!("Hot-reload: loaded shaders from {}, {}", paths.0.display(), paths.1.display());
+                    return format!("{common}\n{render}");
                 }
             }
         }
-        EMBEDDED_SHADER.to_string()
+        format!("{SDF_COMMON}\n{RAYMARCHER}")
     }
 
-    /// Returns the on-disk shader path for hot-reload.
+    /// Returns the on-disk shader paths for hot-reload: (sdf_common.wgsl, raymarcher.wgsl).
     #[cfg(feature = "hot-reload")]
-    pub fn shader_path() -> Option<std::path::PathBuf> {
+    pub fn shader_paths() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
         // Try relative to the workspace root (common during `cargo run`)
         let candidates = [
-            std::path::PathBuf::from("crates/fractal-renderer/shaders/raymarcher.wgsl"),
-            std::path::PathBuf::from("shaders/raymarcher.wgsl"),
+            std::path::PathBuf::from("crates/fractal-renderer/shaders"),
+            std::path::PathBuf::from("shaders"),
         ];
-        for candidate in &candidates {
-            if candidate.exists() {
-                return Some(candidate.clone());
+        for dir in &candidates {
+            let common = dir.join("sdf_common.wgsl");
+            let render = dir.join("raymarcher.wgsl");
+            if common.exists() && render.exists() {
+                return Some((common, render));
             }
         }
         // Try relative to the executable
         if let Ok(exe) = std::env::current_exe() {
             if let Some(dir) = exe.parent() {
-                let path = dir.join("shaders/raymarcher.wgsl");
-                if path.exists() {
-                    return Some(path);
+                let shaders = dir.join("shaders");
+                let common = shaders.join("sdf_common.wgsl");
+                let render = shaders.join("raymarcher.wgsl");
+                if common.exists() && render.exists() {
+                    return Some((common, render));
                 }
             }
         }

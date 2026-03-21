@@ -16,9 +16,11 @@ pub enum HotReloadEvent {
 
 /// Simple file-polling hot-reload watcher.
 pub struct HotReloader {
-    shader_path: Option<PathBuf>,
+    /// Shader file paths: (sdf_common.wgsl, raymarcher.wgsl)
+    shader_paths: Option<(PathBuf, PathBuf)>,
     config_path: Option<PathBuf>,
-    last_shader_modified: Option<SystemTime>,
+    last_shader_common_modified: Option<SystemTime>,
+    last_shader_render_modified: Option<SystemTime>,
     last_config_modified: Option<SystemTime>,
     last_check: Instant,
     check_interval: Duration,
@@ -27,21 +29,23 @@ pub struct HotReloader {
 }
 
 impl HotReloader {
-    pub fn new(shader_path: Option<PathBuf>, config_path: Option<PathBuf>) -> Self {
-        let last_shader_modified = shader_path.as_ref().and_then(|p| file_mtime(p));
+    pub fn new(shader_paths: Option<(PathBuf, PathBuf)>, config_path: Option<PathBuf>) -> Self {
+        let last_shader_common_modified = shader_paths.as_ref().and_then(|p| file_mtime(&p.0));
+        let last_shader_render_modified = shader_paths.as_ref().and_then(|p| file_mtime(&p.1));
         let last_config_modified = config_path.as_ref().and_then(|p| file_mtime(p));
 
-        if let Some(ref path) = shader_path {
-            log::info!("Hot-reload: watching shader at {}", path.display());
+        if let Some(ref paths) = shader_paths {
+            log::info!("Hot-reload: watching shaders at {}, {}", paths.0.display(), paths.1.display());
         }
         if let Some(ref path) = config_path {
             log::info!("Hot-reload: watching config at {}", path.display());
         }
 
         Self {
-            shader_path,
+            shader_paths,
             config_path,
-            last_shader_modified,
+            last_shader_common_modified,
+            last_shader_render_modified,
             last_config_modified,
             last_check: Instant::now(),
             check_interval: Duration::from_millis(500),
@@ -57,11 +61,15 @@ impl HotReloader {
         }
         self.last_check = Instant::now();
 
-        // Check shader file
-        if let Some(ref path) = self.shader_path {
-            let current_mtime = file_mtime(path);
-            if current_mtime != self.last_shader_modified && current_mtime.is_some() {
-                self.last_shader_modified = current_mtime;
+        // Check shader files (either sdf_common.wgsl or raymarcher.wgsl)
+        if let Some(ref paths) = self.shader_paths {
+            let common_mtime = file_mtime(&paths.0);
+            let render_mtime = file_mtime(&paths.1);
+            let common_changed = common_mtime != self.last_shader_common_modified && common_mtime.is_some();
+            let render_changed = render_mtime != self.last_shader_render_modified && render_mtime.is_some();
+            if common_changed || render_changed {
+                self.last_shader_common_modified = common_mtime;
+                self.last_shader_render_modified = render_mtime;
                 return HotReloadEvent::ShaderChanged;
             }
         }
@@ -78,11 +86,13 @@ impl HotReloader {
         HotReloadEvent::None
     }
 
-    /// Read the shader source from disk. Returns None if file doesn't exist.
+    /// Read the concatenated shader source (sdf_common + raymarcher) from disk.
+    /// Returns None if either file doesn't exist.
     pub fn read_shader(&self) -> Option<String> {
-        self.shader_path
-            .as_ref()
-            .and_then(|p| std::fs::read_to_string(p).ok())
+        let paths = self.shader_paths.as_ref()?;
+        let common = std::fs::read_to_string(&paths.0).ok()?;
+        let render = std::fs::read_to_string(&paths.1).ok()?;
+        Some(format!("{common}\n{render}"))
     }
 
     /// Read the config source from disk. Returns None if file doesn't exist.

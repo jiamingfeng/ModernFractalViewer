@@ -373,6 +373,32 @@ impl Default for DebugRanges {
 }
 
 // ---------------------------------------------------------------------------
+// Export ranges
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExportRanges {
+    pub resolution: IntRange,
+    pub bounds: FloatRange,
+}
+
+impl Default for ExportRanges {
+    fn default() -> Self {
+        Self {
+            resolution: IntRange::new(32, 512),
+            bounds: FloatRange {
+                min: -10.0,
+                max: 10.0,
+                speed: Some(0.1),
+                decimals: Some(2),
+                logarithmic: false,
+            },
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Top-level config
 // ---------------------------------------------------------------------------
 
@@ -386,6 +412,7 @@ pub struct AppSettings {
     pub lighting: LightingRanges,
     pub color: ColorRanges,
     pub debug: DebugRanges,
+    pub export: ExportRanges,
     /// Whether to auto-load the last session on app launch.
     pub auto_load_last_session: bool,
 }
@@ -399,6 +426,7 @@ impl Default for AppSettings {
             lighting: LightingRanges::default(),
             color: ColorRanges::default(),
             debug: DebugRanges::default(),
+            export: ExportRanges::default(),
             auto_load_last_session: false,
         }
     }

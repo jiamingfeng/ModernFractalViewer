@@ -64,6 +64,15 @@ pub struct App {
     hot_reloader: Option<crate::hot_reload::HotReloader>,
     /// Shared log buffer for in-app log window
     log_entries: crate::log_capture::LogBuffer,
+    /// GPU compute pipeline for SDF volume sampling (mesh export)
+    #[cfg(not(target_arch = "wasm32"))]
+    sdf_compute: Option<fractal_renderer::compute::SdfVolumeCompute>,
+    /// Background export thread handle
+    #[cfg(not(target_arch = "wasm32"))]
+    export_thread: Option<std::thread::JoinHandle<Result<std::path::PathBuf, String>>>,
+    /// Shared export progress (written by worker thread, read by UI)
+    #[cfg(not(target_arch = "wasm32"))]
+    export_progress: std::sync::Arc<std::sync::Mutex<f32>>,
 }
 
 impl App {
@@ -206,9 +215,9 @@ impl App {
         #[cfg(feature = "hot-reload")]
         let hot_reloader = {
             use fractal_renderer::FractalPipeline;
-            let shader_path = FractalPipeline::shader_path();
+            let shader_paths = FractalPipeline::shader_paths();
             let config_path = data_dir.as_ref().map(|d| d.join("settings.toml"));
-            Some(crate::hot_reload::HotReloader::new(shader_path, config_path))
+            Some(crate::hot_reload::HotReloader::new(shader_paths, config_path))
         };
 
         let thumbnail_capture = ThumbnailCapture::new(
@@ -284,6 +293,12 @@ impl App {
             #[cfg(feature = "hot-reload")]
             hot_reloader,
             log_entries,
+            #[cfg(not(target_arch = "wasm32"))]
+            sdf_compute: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            export_thread: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            export_progress: std::sync::Arc::new(std::sync::Mutex::new(0.0)),
         })
     }
     
@@ -939,6 +954,8 @@ impl App {
         if self.splash.is_none() {
             self.camera = self.ui_state.camera.clone();
             self.handle_session_requests();
+            #[cfg(not(target_arch = "wasm32"))]
+            self.handle_export_requests();
             self.save_settings_if_dirty();
 
             // Handle "open config file" request from UI
@@ -1230,6 +1247,155 @@ impl App {
             }
             self.ui_state.sessions_dirty = true;
         }
+    }
+
+    /// Handle mesh export requests from the UI.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn handle_export_requests(&mut self) {
+        // Poll running export thread
+        if let Some(ref handle) = self.export_thread {
+            if handle.is_finished() {
+                let handle = self.export_thread.take().unwrap();
+                match handle.join() {
+                    Ok(Ok(path)) => {
+                        self.ui_state.export_status =
+                            Some(format!("Exported to {}", path.display()));
+                        log::info!("Mesh exported to {}", path.display());
+                    }
+                    Ok(Err(e)) => {
+                        self.ui_state.export_status = Some(format!("Export failed: {e}"));
+                        log::error!("Mesh export failed: {e}");
+                    }
+                    Err(_) => {
+                        self.ui_state.export_status =
+                            Some("Export failed: thread panicked".to_string());
+                    }
+                }
+                self.ui_state.export_in_progress = false;
+                self.ui_state.export_progress = None;
+            } else {
+                // Update progress from shared state
+                if let Ok(p) = self.export_progress.lock() {
+                    self.ui_state.export_progress = Some(*p);
+                }
+            }
+        }
+
+        // Start new export
+        if self.ui_state.pending_export {
+            self.ui_state.pending_export = false;
+            if self.export_thread.is_some() {
+                return; // Already running
+            }
+            self.start_export();
+        }
+    }
+
+    /// Starts the mesh export pipeline: GPU SDF sampling → CPU MC → glTF write.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn start_export(&mut self) {
+        // Open file dialog
+        let path = rfd::FileDialog::new()
+            .set_file_name("fractal.glb")
+            .add_filter("glTF Binary", &["glb"])
+            .save_file();
+        let Some(path) = path else {
+            return; // User cancelled
+        };
+
+        // Initialize compute pipeline lazily
+        if self.sdf_compute.is_none() {
+            self.sdf_compute = Some(fractal_renderer::compute::SdfVolumeCompute::new(
+                &self.render_ctx.device,
+                &self.pipeline.uniform_buffer,
+            ));
+        }
+
+        // Update uniforms so the GPU has the latest fractal params
+        self.pipeline.update_uniforms(&self.render_ctx.queue);
+
+        // GPU phase: sample SDF volume (blocking, fast ~10-50ms)
+        let config = &self.ui_state.export_config;
+        let compute = self.sdf_compute.as_mut().unwrap();
+        compute.dispatch(
+            &self.render_ctx.device,
+            &self.render_ctx.queue,
+            &self.pipeline.uniform_buffer,
+            config.bounds_min,
+            config.bounds_max,
+            config.resolution,
+        );
+        let grid = compute.read_volume(&self.render_ctx.device);
+
+        // Clone data for the background thread
+        let resolution = config.resolution;
+        let bounds_min = config.bounds_min;
+        let bounds_max = config.bounds_max;
+        let iso_level = config.iso_level;
+        let compute_normals = config.compute_normals;
+        let color_config = self.ui_state.color_config.clone();
+        let progress = self.export_progress.clone();
+
+        // Reset progress
+        if let Ok(mut p) = progress.lock() {
+            *p = 0.0;
+        }
+        self.ui_state.export_in_progress = true;
+        self.ui_state.export_status = Some("Generating mesh...".to_string());
+
+        // CPU phase: background thread for Marching Cubes + glTF export
+        self.export_thread = Some(std::thread::spawn(move || {
+            use fractal_core::mesh::{marching_cubes, gltf_export, palette};
+
+            let progress_cb = {
+                let progress = progress.clone();
+                move |p: f32| {
+                    if let Ok(mut val) = progress.lock() {
+                        *val = p;
+                    }
+                }
+            };
+
+            // Extract mesh
+            let mut mesh = marching_cubes::extract_mesh(
+                &grid,
+                [resolution, resolution, resolution],
+                bounds_min,
+                bounds_max,
+                iso_level,
+                compute_normals,
+                Some(&progress_cb),
+            );
+
+            // Compute vertex colors from trap values
+            let palette_rgba: Vec<[f32; 4]> = color_config
+                .palette_colors
+                .iter()
+                .map(|c| [c[0], c[1], c[2], 1.0])
+                .collect();
+            let vertex_count = mesh.positions.len();
+            let mut final_colors = Vec::with_capacity(vertex_count);
+            for i in 0..vertex_count {
+                // mesh.colors stores [trap, 0, 0, 0] from MC extraction
+                let trap = if i < mesh.colors.len() { mesh.colors[i][0] } else { 0.0 };
+                let normal = if i < mesh.normals.len() {
+                    mesh.normals[i]
+                } else {
+                    [0.0, 1.0, 0.0]
+                };
+                final_colors.push(palette::get_vertex_color(
+                    trap,
+                    normal,
+                    &color_config,
+                    &palette_rgba,
+                ));
+            }
+            mesh.colors = final_colors;
+
+            // Export to glTF
+            gltf_export::export_glb(&mesh, &path).map_err(|e| e.to_string())?;
+            Ok(path)
+        }));
     }
 
     /// Save the current session. If `overwrite_id` is `Some`, overwrites that slot;

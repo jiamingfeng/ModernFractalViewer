@@ -1,0 +1,61 @@
+//! Mesh extraction and export from SDF data.
+
+pub mod gltf_export;
+pub mod marching_cubes;
+pub mod palette;
+
+use serde::{Deserialize, Serialize};
+
+/// Intermediate mesh representation, decoupled from export format.
+#[derive(Debug, Clone)]
+pub struct MeshData {
+    /// Vertex positions [x, y, z]
+    pub positions: Vec<[f32; 3]>,
+    /// Per-vertex normals [nx, ny, nz]
+    pub normals: Vec<[f32; 3]>,
+    /// Per-vertex RGBA colors [r, g, b, a] in [0, 1]
+    pub colors: Vec<[f32; 4]>,
+    /// Triangle indices (every 3 form a triangle)
+    pub indices: Vec<u32>,
+}
+
+/// Export configuration set by the UI.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExportConfig {
+    /// Grid cells per axis (uniform resolution)
+    pub resolution: u32,
+    /// Bounding box minimum [x, y, z]
+    pub bounds_min: [f32; 3],
+    /// Bounding box maximum [x, y, z]
+    pub bounds_max: [f32; 3],
+    /// Iso-level for surface extraction (typically 0.0 for SDFs)
+    pub iso_level: f32,
+    /// Whether to compute smooth normals from the SDF gradient
+    pub compute_normals: bool,
+}
+
+impl Default for ExportConfig {
+    fn default() -> Self {
+        Self {
+            resolution: 128,
+            bounds_min: [-1.5, -1.5, -1.5],
+            bounds_max: [1.5, 1.5, 1.5],
+            iso_level: 0.0,
+            compute_normals: true,
+        }
+    }
+}
+
+/// Returns the default bounding box for a given fractal type.
+pub fn default_bounds(fractal_type: crate::FractalType) -> ([f32; 3], [f32; 3]) {
+    use crate::FractalType::*;
+    match fractal_type {
+        Mandelbulb => ([-1.5, -1.5, -1.5], [1.5, 1.5, 1.5]),
+        Menger => ([-1.5, -1.5, -1.5], [1.5, 1.5, 1.5]),
+        Julia3D => ([-2.0, -2.0, -2.0], [2.0, 2.0, 2.0]),
+        Mandelbox => ([-3.0, -3.0, -3.0], [3.0, 3.0, 3.0]),
+        Sierpinski => ([-2.0, -2.0, -2.0], [2.0, 2.0, 2.0]),
+        Apollonian => ([-2.0, -2.0, -2.0], [2.0, 2.0, 2.0]),
+    }
+}

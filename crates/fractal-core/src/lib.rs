@@ -5,6 +5,7 @@
 
 pub mod camera;
 pub mod fractals;
+pub mod mesh;
 pub mod sdf;
 pub mod session;
 
