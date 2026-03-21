@@ -83,6 +83,8 @@ pub struct UiState {
     pub open_config_requested: bool,
     /// Show the in-app log window
     pub show_logs: bool,
+    /// Whether light control mode is active (L key held)
+    pub light_control_active: bool,
     /// Log filter: free-text search (case-insensitive)
     pub log_filter_text: String,
     /// Log filter: show INFO level
@@ -123,6 +125,7 @@ impl Default for UiState {
             log_show_info: true,
             log_show_warn: true,
             log_show_error: true,
+            light_control_active: false,
         }
     }
 }

@@ -369,6 +369,11 @@ impl App {
     }
     
     fn handle_keyboard(&mut self, event: &winit::event::KeyEvent) {
+        // Track L key for light direction control
+        if let PhysicalKey::Code(KeyCode::KeyL) = event.physical_key {
+            self.input.l_key_down = event.state == ElementState::Pressed;
+        }
+
         if event.state == ElementState::Pressed {
             match event.physical_key {
                 PhysicalKey::Code(KeyCode::Escape) => {
@@ -404,21 +409,124 @@ impl App {
     fn handle_mouse_move(&mut self, x: f32, y: f32) {
         let dx = x - self.input.mouse_pos.0;
         let dy = y - self.input.mouse_pos.1;
-        
-        if self.input.left_mouse_down {
+
+        if self.input.l_key_down {
+            // Light direction control: orbit light on unit sphere
+            self.orbit_light(dx * 0.005, -dy * 0.005);
+        } else if self.input.left_mouse_down {
             // Orbit camera
             self.camera.orbit(dx * 0.005, -dy * 0.005);
         }
-        
-        if self.input.right_mouse_down {
+
+        if self.input.right_mouse_down && !self.input.l_key_down {
             // Pan camera
             let pan_speed = self.camera.distance * 0.002;
             self.camera.pan(glam::Vec3::new(-dx * pan_speed, -dy * pan_speed, 0.0));
         }
-        
+
         self.input.mouse_pos = (x, y);
     }
+
+    /// Orbit the light direction on a unit sphere by azimuth/elevation deltas.
+    fn orbit_light(&mut self, d_azimuth: f32, d_elevation: f32) {
+        let dir = &self.ui_state.lighting_config.light_dir;
+        // Convert current direction to spherical coordinates
+        let r = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt().max(0.001);
+        let mut elevation = (dir[1] / r).asin();
+        let mut azimuth = dir[2].atan2(dir[0]);
+
+        azimuth += d_azimuth;
+        elevation = (elevation + d_elevation).clamp(
+            -std::f32::consts::FRAC_PI_2 + 0.01,
+            std::f32::consts::FRAC_PI_2 - 0.01,
+        );
+
+        // Convert back to Cartesian (normalized)
+        let cos_el = elevation.cos();
+        self.ui_state.lighting_config.light_dir = [
+            cos_el * azimuth.cos(),
+            elevation.sin(),
+            cos_el * azimuth.sin(),
+        ];
+    }
     
+    /// Draw a 2D light direction gizmo overlay via egui.
+    fn draw_light_gizmo(ctx: &egui::Context, light_dir: &[f32; 3]) {
+        let screen = ctx.screen_rect();
+        let center = egui::pos2(screen.center().x, screen.center().y);
+        let radius = 80.0_f32;
+
+        // Use a foreground area for the gizmo
+        egui::Area::new(egui::Id::new("light_gizmo"))
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                let painter = ui.painter();
+
+                // Semi-transparent background circle
+                painter.circle_filled(center, radius + 5.0, egui::Color32::from_black_alpha(80));
+
+                // Equator ring (horizontal circle = ellipse)
+                painter.circle_stroke(
+                    center,
+                    radius,
+                    egui::Stroke::new(1.0, egui::Color32::from_gray(80)),
+                );
+
+                // Upper hemisphere arc
+                let dome_center = egui::pos2(center.x, center.y);
+                painter.circle_stroke(
+                    egui::pos2(dome_center.x, dome_center.y - radius * 0.1),
+                    radius * 0.7,
+                    egui::Stroke::new(0.5, egui::Color32::from_gray(60)),
+                );
+
+                // Axis lines (RGB = XYZ)
+                let axis_len = radius * 0.85;
+                // X axis (Red) — right
+                painter.line_segment(
+                    [center, egui::pos2(center.x + axis_len, center.y)],
+                    egui::Stroke::new(1.5, egui::Color32::from_rgb(200, 50, 50)),
+                );
+                // Y axis (Green) — up
+                painter.line_segment(
+                    [center, egui::pos2(center.x, center.y - axis_len)],
+                    egui::Stroke::new(1.5, egui::Color32::from_rgb(50, 200, 50)),
+                );
+                // Z axis (Blue) — into screen (projected as diagonal)
+                painter.line_segment(
+                    [center, egui::pos2(center.x - axis_len * 0.5, center.y + axis_len * 0.35)],
+                    egui::Stroke::new(1.5, egui::Color32::from_rgb(50, 80, 200)),
+                );
+
+                // Light direction arrow (projected to 2D: X→right, Y→up, Z→depth hint)
+                let lx = light_dir[0];
+                let ly = light_dir[1];
+                let lz = light_dir[2];
+                let arrow_end = egui::pos2(
+                    center.x + (lx - lz * 0.35) * radius * 0.8,
+                    center.y - (ly + lz * 0.15) * radius * 0.8,
+                );
+
+                // Arrow shaft
+                painter.line_segment(
+                    [center, arrow_end],
+                    egui::Stroke::new(3.0, egui::Color32::YELLOW),
+                );
+                // Arrow tip
+                painter.circle_filled(arrow_end, 5.0, egui::Color32::YELLOW);
+
+                // Label
+                painter.text(
+                    egui::pos2(center.x, center.y + radius + 15.0),
+                    egui::Align2::CENTER_TOP,
+                    "Light Direction (L + drag)",
+                    egui::FontId::proportional(12.0),
+                    egui::Color32::from_gray(180),
+                );
+            });
+    }
+
     fn handle_scroll(&mut self, delta: &MouseScrollDelta) {
         let scroll = match delta {
             MouseScrollDelta::LineDelta(_, y) => *y,
@@ -713,6 +821,12 @@ impl App {
                                         }
                                     });
                             });
+                    }
+
+                    // Light direction gizmo (shown when L key is held)
+                    self.ui_state.light_control_active = self.input.l_key_down;
+                    if self.ui_state.light_control_active {
+                        Self::draw_light_gizmo(ctx, &self.ui_state.lighting_config.light_dir);
                     }
                 });
 

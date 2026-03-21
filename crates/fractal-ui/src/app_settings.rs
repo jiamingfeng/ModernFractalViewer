@@ -297,19 +297,30 @@ impl Default for RenderingRanges {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LightingRanges {
+    // Shared
     pub ambient: FloatRange,
+    pub shadow_softness: FloatRange,
+    // Blinn-Phong
     pub diffuse: FloatRange,
     pub specular: FloatRange,
     pub shininess: FloatRange,
+    // PBR
+    pub roughness: FloatRange,
+    pub metallic: FloatRange,
+    pub light_intensity: FloatRange,
 }
 
 impl Default for LightingRanges {
     fn default() -> Self {
         Self {
             ambient: FloatRange::new(0.0, 1.0),
+            shadow_softness: FloatRange::new(1.0, 64.0),
             diffuse: FloatRange::new(0.0, 1.0),
             specular: FloatRange::new(0.0, 1.0),
             shininess: FloatRange::new(1.0, 128.0),
+            roughness: FloatRange::new(0.0, 1.0),
+            metallic: FloatRange::new(0.0, 1.0),
+            light_intensity: FloatRange::new(0.0, 5.0),
         }
     }
 }

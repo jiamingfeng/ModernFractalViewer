@@ -96,8 +96,15 @@ pub struct Uniforms {
     pub near_clip: f32,            // 4 bytes, offset 408
     pub _pad7: f32,                // 4 bytes, offset 412
 
-    // Reserved (96 bytes at offset 416)
-    pub _reserved: [f32; 24],      // 96 bytes, offset 416
+    // PBR / lighting model fields (20 bytes at offset 416)
+    pub lighting_model: u32,       // 4 bytes, offset 416
+    pub roughness: f32,            // 4 bytes, offset 420
+    pub metallic: f32,             // 4 bytes, offset 424
+    pub light_intensity: f32,      // 4 bytes, offset 428
+    pub shadow_softness: f32,      // 4 bytes, offset 432
+
+    // Reserved (76 bytes at offset 436)
+    pub _reserved: [f32; 19],      // 76 bytes, offset 436
 
     // Total: 512 bytes
 }
@@ -179,7 +186,12 @@ impl Uniforms {
             near_clip: camera.near,
             _pad7: 0.0,
 
-            _reserved: [0.0; 24],
+            lighting_model: 0,
+            roughness: 0.5,
+            metallic: 0.0,
+            light_intensity: 1.5,
+            shadow_softness: 8.0,
+            _reserved: [0.0; 19],
         };
         u.update_color(&color);
         u
@@ -225,6 +237,11 @@ impl Uniforms {
         self.diffuse = config.diffuse;
         self.specular = config.specular;
         self.shininess = config.shininess;
+        self.lighting_model = config.lighting_model;
+        self.roughness = config.roughness;
+        self.metallic = config.metallic;
+        self.light_intensity = config.light_intensity;
+        self.shadow_softness = config.shadow_softness;
     }
 
     /// Update color config including palette

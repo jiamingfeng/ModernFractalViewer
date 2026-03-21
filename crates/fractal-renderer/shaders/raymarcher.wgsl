@@ -80,13 +80,21 @@ struct Uniforms {
     near_clip: f32,
     _pad7: f32,
 
-    // Reserved
+    // PBR / lighting model (20 bytes at offset 416)
+    lighting_model: u32,       // 0 = Blinn-Phong, 1 = PBR
+    roughness: f32,
+    metallic: f32,
+    light_intensity: f32,
+    shadow_softness: f32,
+
+    // Reserved (76 bytes at offset 436)
+    _res_a: f32,
+    _res_b: f32,
+    _res_c: f32,
     _reserved1: vec4<f32>,
     _reserved2: vec4<f32>,
     _reserved3: vec4<f32>,
     _reserved4: vec4<f32>,
-    _reserved5: vec4<f32>,
-    _reserved6: vec4<f32>,
 }
 
 @group(0) @binding(0)
@@ -481,24 +489,25 @@ fn calc_ao(pos: vec3<f32>, nor: vec3<f32>) -> f32 {
 // ============================================================================
 
 fn calc_shadow(ro: vec3<f32>, rd: vec3<f32>) -> f32 {
-    // Soft shadow tuned for fractal SDFs: clamped steps ensure we don't skip
-    // over fine detail, higher k gives softer penumbra, more iterations compensate.
+    // Improved soft shadows with inner penumbra (IQ, nurof3n).
+    // Allows the ray to penetrate the SDF for smooth contact shadows.
+    // w = shadow_softness (higher = softer, lower = harder).
     var res = 1.0;
     var t = 0.01;
+    let w = u.shadow_softness;
 
     for (var i = 0u; i < 64u; i = i + 1u) {
-        let h = map(ro + rd * t).x;
-        if (h < 0.001) {
-            return 0.0;
-        }
-        res = min(res, 16.0 * h / t);
-        t = t + clamp(h, 0.005, 0.05);
-        if (res < 0.001 || t > 5.0) {
+        let h = map(ro + t * rd).x;
+        res = min(res, h / (w * t));
+        t = t + clamp(h, 0.005, 0.50);
+        if (res < -1.0 || t > 20.0) {
             break;
         }
     }
-    
-    return clamp(res, 0.0, 1.0);
+
+    res = max(res, -1.0);
+    // Smooth remap from [-1, 1] to [0, 1]
+    return 0.25 * (1.0 + res) * (1.0 + res) * (2.0 - res);
 }
 
 // ============================================================================
@@ -644,6 +653,59 @@ fn get_ray_direction(uv: vec2<f32>) -> vec3<f32> {
 // ============================================================================
 
 // Render a single sample for a given UV coordinate
+// ============================================================================
+// PBR LIGHTING (Cook-Torrance GGX)
+// ============================================================================
+
+fn shade_pbr(
+    albedo: vec3<f32>,
+    nor: vec3<f32>,
+    light_dir: vec3<f32>,
+    view_dir: vec3<f32>,
+    ao: f32,
+    shadow: f32,
+) -> vec3<f32> {
+    let half_vec = normalize(light_dir + view_dir);
+    let NdotL = max(dot(nor, light_dir), 0.0);
+    let NdotV = max(dot(nor, view_dir), 0.001);
+    let NdotH = max(dot(nor, half_vec), 0.0);
+    let VdotH = max(dot(view_dir, half_vec), 0.0);
+
+    let roughness = clamp(u.roughness, 0.04, 1.0);
+    let metallic = u.metallic;
+
+    // GGX Normal Distribution Function (Trowbridge-Reitz)
+    let a = roughness * roughness;
+    let a2 = a * a;
+    let denom_d = NdotH * NdotH * (a2 - 1.0) + 1.0;
+    let D = a2 / (3.14159265 * denom_d * denom_d);
+
+    // Schlick Fresnel approximation
+    let F0 = mix(vec3<f32>(0.04), albedo, metallic);
+    let F = F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
+
+    // Smith GGX Geometry Function (Schlick-Beckmann approximation)
+    let k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+    let G1_L = NdotL / (NdotL * (1.0 - k) + k);
+    let G1_V = NdotV / (NdotV * (1.0 - k) + k);
+    let G = G1_L * G1_V;
+
+    // Cook-Torrance specular BRDF
+    let specular_brdf = (D * F * G) / max(4.0 * NdotL * NdotV, 0.001);
+
+    // Energy-conserving Lambert diffuse
+    let kD = (vec3<f32>(1.0) - F) * (1.0 - metallic);
+    let diffuse = kD * albedo / 3.14159265;
+
+    // Combine: ambient + (diffuse + specular) * direct light
+    return u.ambient * albedo * ao
+        + (diffuse + specular_brdf) * NdotL * shadow * u.light_intensity;
+}
+
+// ============================================================================
+// FRAGMENT SHADER — render a single sample
+// ============================================================================
+
 fn render_sample(uv: vec2<f32>) -> vec3<f32> {
     let ro = u.camera_pos.xyz;
     let rd = get_ray_direction(uv);
@@ -664,28 +726,27 @@ fn render_sample(uv: vec2<f32>) -> vec3<f32> {
         // Surface color from palette
         col = get_color(result.trap, nor, result.steps);
 
-        // Lighting
+        // Shared lighting setup
         let light_dir = normalize(u.light_dir.xyz);
-
-        // Diffuse
-        let diff = max(dot(nor, light_dir), 0.0);
-
-        // Specular (Blinn-Phong)
-        let half_vec = normalize(light_dir - rd);
-        let spec = pow(max(dot(nor, half_vec), 0.0), u.shininess);
-
-        // Ambient occlusion
+        let view_dir = -rd;
         let ao = calc_ao(pos, nor);
-
-        // Soft shadow
         let shadow = calc_shadow(pos + nor * u.epsilon * 2.0, light_dir);
 
-        // Combine lighting
-        col = col * (
-            u.ambient * ao +
-            u.diffuse * diff * shadow +
-            u.specular * spec * shadow
-        );
+        if (u.lighting_model == 1u) {
+            // PBR Lighting (Cook-Torrance GGX microfacet BRDF)
+            col = shade_pbr(col, nor, light_dir, view_dir, ao, shadow);
+        } else {
+            // Blinn-Phong Lighting (default)
+            let diff = max(dot(nor, light_dir), 0.0);
+            let half_vec = normalize(light_dir + view_dir);
+            let spec = pow(max(dot(nor, half_vec), 0.0), u.shininess);
+
+            col = col * (
+                u.ambient * ao +
+                u.diffuse * diff * shadow +
+                u.specular * spec * shadow
+            );
+        }
 
         // Tone mapping (simple Reinhard)
         col = col / (col + vec3<f32>(1.0));

@@ -47,12 +47,22 @@ pub struct LightingConfig {
     pub light_dir: [f32; 3],
     /// Ambient light intensity
     pub ambient: f32,
-    /// Diffuse light intensity
+    /// Diffuse light intensity (Blinn-Phong)
     pub diffuse: f32,
-    /// Specular light intensity
+    /// Specular light intensity (Blinn-Phong)
     pub specular: f32,
-    /// Specular shininess exponent
+    /// Specular shininess exponent (Blinn-Phong)
     pub shininess: f32,
+    /// Lighting model: 0 = Blinn-Phong, 1 = PBR (Cook-Torrance GGX)
+    pub lighting_model: u32,
+    /// Surface roughness (PBR, 0=smooth, 1=rough)
+    pub roughness: f32,
+    /// Metalness (PBR, 0=dielectric, 1=metal)
+    pub metallic: f32,
+    /// Direct light brightness (PBR)
+    pub light_intensity: f32,
+    /// Soft shadow width parameter (higher = softer, shared by both models)
+    pub shadow_softness: f32,
 }
 
 impl Default for LightingConfig {
@@ -63,6 +73,11 @@ impl Default for LightingConfig {
             diffuse: 0.8,
             specular: 0.3,
             shininess: 32.0,
+            lighting_model: 0,
+            roughness: 0.5,
+            metallic: 0.0,
+            light_intensity: 1.5,
+            shadow_softness: 8.0,
         }
     }
 }

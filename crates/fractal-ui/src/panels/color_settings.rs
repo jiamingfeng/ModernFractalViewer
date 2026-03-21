@@ -153,6 +153,26 @@ impl ColorSettingsPanel {
 
             let lighting = &mut state.lighting_config;
 
+            // Lighting model selector
+            ui.horizontal(|ui| {
+                ui.label("Model:");
+                egui::ComboBox::from_id_salt("lighting_model")
+                    .selected_text(match lighting.lighting_model {
+                        0 => "Blinn-Phong",
+                        1 => "PBR (GGX)",
+                        _ => "Unknown",
+                    })
+                    .show_ui(ui, |ui| {
+                        if ui.selectable_value(&mut lighting.lighting_model, 0, "Blinn-Phong").clicked() {
+                            changed = true;
+                        }
+                        if ui.selectable_value(&mut lighting.lighting_model, 1, "PBR (GGX)").clicked() {
+                            changed = true;
+                        }
+                    });
+            });
+
+            // Shared: ambient
             ui.horizontal(|ui| {
                 ui.label("Ambient Light:");
                 if ui.add(lighting_ranges.ambient.slider(&mut lighting.ambient)).changed() {
@@ -160,26 +180,59 @@ impl ColorSettingsPanel {
                 }
             });
 
+            if lighting.lighting_model == 0 {
+                // Blinn-Phong specific
+                ui.horizontal(|ui| {
+                    ui.label("Direct Light:");
+                    if ui.add(lighting_ranges.diffuse.slider(&mut lighting.diffuse)).changed() {
+                        changed = true;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Reflection:");
+                    if ui.add(lighting_ranges.specular.slider(&mut lighting.specular)).changed() {
+                        changed = true;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Gloss:");
+                    if ui.add(lighting_ranges.shininess.slider(&mut lighting.shininess)).changed() {
+                        changed = true;
+                    }
+                });
+            } else {
+                // PBR specific
+                ui.horizontal(|ui| {
+                    ui.label("Roughness:");
+                    if ui.add(lighting_ranges.roughness.slider(&mut lighting.roughness)).changed() {
+                        changed = true;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Metallic:");
+                    if ui.add(lighting_ranges.metallic.slider(&mut lighting.metallic)).changed() {
+                        changed = true;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Light Intensity:");
+                    if ui.add(lighting_ranges.light_intensity.slider(&mut lighting.light_intensity)).changed() {
+                        changed = true;
+                    }
+                });
+            }
+
+            // Shared: shadow softness
             ui.horizontal(|ui| {
-                ui.label("Direct Light:");
-                if ui.add(lighting_ranges.diffuse.slider(&mut lighting.diffuse)).changed() {
+                ui.label("Shadow Softness:");
+                if ui.add(lighting_ranges.shadow_softness.slider(&mut lighting.shadow_softness)).changed() {
                     changed = true;
                 }
             });
 
-            ui.horizontal(|ui| {
-                ui.label("Reflection:");
-                if ui.add(lighting_ranges.specular.slider(&mut lighting.specular)).changed() {
-                    changed = true;
-                }
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("Gloss:");
-                if ui.add(lighting_ranges.shininess.slider(&mut lighting.shininess)).changed() {
-                    changed = true;
-                }
-            });
+            if state.light_control_active {
+                ui.small("Hold L + drag mouse to change light direction");
+            }
 
             ui.add_space(4.0);
 

@@ -21,6 +21,9 @@ pub struct InputState {
     /// Middle mouse button down
     pub middle_mouse_down: bool,
 
+    /// L key held (light direction control mode)
+    pub l_key_down: bool,
+
     /// Active touch points by finger id
     pub touches: HashMap<u64, TouchPoint>,
     /// Previous distance between two fingers (for pinch-to-zoom)
