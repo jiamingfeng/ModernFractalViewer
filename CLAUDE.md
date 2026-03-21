@@ -36,10 +36,10 @@ cargo ndk -t arm64-v8a -o android/app/src/main/jniLibs build -p fractal-app --re
 ```
 
 CI enforces `-D warnings` (RUSTFLAGS), so the build fails on any warnings.
-CI runs unit tests on all PC platforms (Windows, macOS, Linux x64, Linux ARM64) and checks
-Android compilation via `.github/workflows/test.yml`. The release workflow (`release.yml`)
-also runs the full test suite before creating a release.
-Snapshot tests are excluded from CI (they require a GPU).
+CI uses `cargo nextest` with the `ci` profile (`.config/nextest.toml`) on all PC platforms
+(Windows, macOS, Linux x64, Linux ARM64) and checks Android compilation via
+`.github/workflows/test.yml`. The release workflow (`release.yml`) also runs the full test
+suite before creating a release. Snapshot tests are excluded from CI (they require a GPU).
 When running local checks, do NOT set RUSTFLAGS manually — just use `cargo check --workspace`.
 
 Before pushing, verify cross-compilation for at least Windows (default) and Android:
@@ -82,6 +82,8 @@ wgpu uses Naga to transpile WGSL to SPIR-V (Vulkan), MSL (Metal), HLSL (DirectX 
 
 `FractalParams` in Rust maps 1:1 to a uniform buffer in WGSL. When adding new fractal parameters, update both `fractal-core/src/fractals/mod.rs` (the struct) and `raymarcher.wgsl` (the uniform binding and SDF implementation).
 
+**No `vec3` in uniform structs**: WGSL requires 16-byte alignment for `vec4` and 8-byte for `vec2`, but `vec3` also occupies 16 bytes. The Rust `Uniforms` struct in `uniforms.rs` uses individual `f32` fields with explicit `_padN` fields instead of `[f32; 3]` to match WGSL layout. Byte offsets are documented in comments there.
+
 ### Adding a New Fractal Type
 
 1. Add variant to `FractalType` enum (`fractal-core/src/fractals/mod.rs`)
@@ -94,9 +96,35 @@ wgpu uses Naga to transpile WGSL to SPIR-V (Vulkan), MSL (Metal), HLSL (DirectX 
 - Snapshot/golden-image tests are feature-gated behind `snapshot-tests` and require a GPU: `cargo test -p fractal-renderer --features snapshot-tests`
 - To regenerate golden images: `GENERATE_GOLDEN=1 cargo test -p fractal-renderer --features snapshot-tests`
 
+## Conventions
+
+- **Serde backward compatibility**: All serializable structs use `#[serde(default)]` so that old saved sessions still deserialize when new fields are added. Use `#[serde(alias = "old_name")]` when renaming fields. Follow this pattern for any new serializable fields.
+- **GPU adapter limits**: The renderer requests `adapter.limits()` instead of `Limits::default()` to support low-power GPUs (e.g., Raspberry Pi VideoCore VI). Do not hardcode limit assumptions.
+- **Android page size**: `.cargo/config.toml` sets `-z max-page-size=16384` for all Android targets (16 KB page alignment required by Android 15+). Do not remove these flags.
+
 ## Key Technical Details
 
 - **Deep zoom**: Uses double-single arithmetic (`hi: f32 + lo: f32`) in WGSL to emulate f64 precision (~14 decimal digits), enabling zoom to ~10^12. Implemented via Knuth's TwoSum and Veltkamp multiplication.
 - **Android**: NativeActivity (no Java), loads `libfractal_app.so` (cdylib). Requires Vulkan level 1 hardware feature.
 - **Web entry**: `crates/fractal-app/index.html` is the Trunk-managed HTML entry. Assets are copied via `data-trunk` directives.
 - **Windows icon**: Embedded at build time via `crates/fractal-app/build.rs` using `winresource`.
+
+## Reliable Resources on SDFs, Raymarching, Lighting, Rendering
+
+Consult these when working on SDF implementations, ray marching, lighting, or rendering code in `raymarcher.wgsl`:
+
+https://iquilezles.org/articles/distfunctions
+https://iquilezles.org/articles/distgradfunctions3d
+https://iquilezles.org/articles/bboxes3d
+https://iquilezles.org/articles/intersectors
+https://iquilezles.org/articles/smoothsteps
+https://iquilezles.org/articles/sigmoids
+https://iquilezles.org/articles/raymarchingdf
+https://iquilezles.org/articles/rmshadows
+https://iquilezles.org/articles/normalsSDF
+https://iquilezles.org/articles/fbmsdf
+https://iquilezles.org/articles/binarysearchsdf
+https://iquilezles.org/articles/fog
+https://iquilezles.org/articles/outdoorslighting
+
+More links can be found in: https://iquilezles.org/articles
