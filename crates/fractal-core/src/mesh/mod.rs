@@ -6,6 +6,7 @@ pub mod marching_cubes;
 mod mc_tables;
 pub mod palette;
 mod qef;
+pub mod surface_nets;
 
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +30,8 @@ pub enum MeshMethod {
     MarchingCubes,
     /// Dual Contouring — watertight quads, sharp feature preservation via QEF.
     DualContouring,
+    /// Surface Nets — smooth, averaged vertex placement; ideal for fractal SDFs.
+    SurfaceNets,
 }
 
 impl Default for MeshMethod {
@@ -42,6 +45,7 @@ impl std::fmt::Display for MeshMethod {
         match self {
             MeshMethod::MarchingCubes => write!(f, "Marching Cubes"),
             MeshMethod::DualContouring => write!(f, "Dual Contouring"),
+            MeshMethod::SurfaceNets => write!(f, "Surface Nets"),
         }
     }
 }

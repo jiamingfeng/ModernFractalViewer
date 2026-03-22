@@ -24,7 +24,7 @@ const SPLASH_MIN_DURATION_SECS: f32 = 2.0;
 /// Data captured in phase 1 of a non-blocking export, waiting for the GPU
 /// staging buffer to become mapped so the volume can be read back without
 /// blocking the main thread.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
 struct PendingGpuReadback {
     path: std::path::PathBuf,
     rx: std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
@@ -1470,7 +1470,7 @@ impl App {
         // CPU phase: background thread for mesh extraction + glTF export
         self.export_thread = Some(std::thread::spawn(move || {
             use fractal_core::mesh::{
-                dual_contouring, marching_cubes, gltf_export, palette, MeshMethod,
+                dual_contouring, marching_cubes, surface_nets, gltf_export, palette, MeshMethod,
             };
 
             let progress_cb = {
@@ -1495,6 +1495,15 @@ impl App {
                     Some(&progress_cb),
                 ),
                 MeshMethod::MarchingCubes => marching_cubes::extract_mesh(
+                    &grid,
+                    [resolution, resolution, resolution],
+                    bounds_min,
+                    bounds_max,
+                    iso_level,
+                    compute_normals,
+                    Some(&progress_cb),
+                ),
+                MeshMethod::SurfaceNets => surface_nets::extract_mesh(
                     &grid,
                     [resolution, resolution, resolution],
                     bounds_min,

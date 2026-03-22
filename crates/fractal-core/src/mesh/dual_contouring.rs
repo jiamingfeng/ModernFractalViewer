@@ -415,7 +415,7 @@ pub fn extract_mesh(
     // ── Phase C: Compute normals and colors ──────────────────────────
 
     let normals = if compute_normals {
-        compute_gradient_normals(&positions, grid, dims, bounds_min, dx, dy, dz, vx, vy)
+        compute_gradient_normals(&positions, grid, dims, bounds_min, dx, dy, dz, vx, vy, &indices)
     } else {
         compute_face_normals(&positions, &indices)
     };
@@ -471,7 +471,12 @@ fn dist_sq(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 // ── Normal computation ───────────────────────────────────────────────────
 
-/// Compute smooth normals from SDF gradient via central differences.
+/// Compute smooth normals from SDF gradient via **trilinear interpolation**
+/// of central-difference gradients at the 8 surrounding grid corners.
+///
+/// This is a significant improvement over the previous nearest-grid-point
+/// approach: instead of snapping to one grid vertex, we interpolate
+/// continuously, which eliminates discontinuities at cell boundaries.
 fn compute_gradient_normals(
     positions: &[[f32; 3]],
     grid: &[[f32; 2]],
@@ -482,6 +487,7 @@ fn compute_gradient_normals(
     dz: f32,
     vx: u32,
     vy: u32,
+    indices: &[u32],
 ) -> Vec<[f32; 3]> {
     let inv_dx = 1.0 / dx;
     let inv_dy = 1.0 / dy;
@@ -490,20 +496,140 @@ fn compute_gradient_normals(
     let max_gy = dims[1];
     let max_gz = dims[2];
 
-    positions
+    let mut normals: Vec<[f32; 3]> = positions
         .iter()
         .map(|pos| {
+            // Continuous grid coordinates
             let fx = ((pos[0] - bounds_min[0]) * inv_dx).clamp(0.0, max_gx as f32);
             let fy = ((pos[1] - bounds_min[1]) * inv_dy).clamp(0.0, max_gy as f32);
             let fz = ((pos[2] - bounds_min[2]) * inv_dz).clamp(0.0, max_gz as f32);
 
-            let gx = (fx.round() as u32).min(max_gx);
-            let gy = (fy.round() as u32).min(max_gy);
-            let gz = (fz.round() as u32).min(max_gz);
+            // Integer grid corner (lower-left of the cell containing the point)
+            let x0 = (fx.floor() as u32).min(max_gx.saturating_sub(1));
+            let y0 = (fy.floor() as u32).min(max_gy.saturating_sub(1));
+            let z0 = (fz.floor() as u32).min(max_gz.saturating_sub(1));
 
-            estimate_gradient(grid, gx, gy, gz, vx, vy, max_gx, max_gy, max_gz)
+            // Fractional part for trilinear interpolation
+            let tx = (fx - x0 as f32).clamp(0.0, 1.0);
+            let ty = (fy - y0 as f32).clamp(0.0, 1.0);
+            let tz = (fz - z0 as f32).clamp(0.0, 1.0);
+
+            // Upper corner (clamped)
+            let x1 = (x0 + 1).min(max_gx);
+            let y1 = (y0 + 1).min(max_gy);
+            let z1 = (z0 + 1).min(max_gz);
+
+            // Estimate gradients at all 8 corners
+            let g000 = estimate_gradient(grid, x0, y0, z0, vx, vy, max_gx, max_gy, max_gz);
+            let g100 = estimate_gradient(grid, x1, y0, z0, vx, vy, max_gx, max_gy, max_gz);
+            let g010 = estimate_gradient(grid, x0, y1, z0, vx, vy, max_gx, max_gy, max_gz);
+            let g110 = estimate_gradient(grid, x1, y1, z0, vx, vy, max_gx, max_gy, max_gz);
+            let g001 = estimate_gradient(grid, x0, y0, z1, vx, vy, max_gx, max_gy, max_gz);
+            let g101 = estimate_gradient(grid, x1, y0, z1, vx, vy, max_gx, max_gy, max_gz);
+            let g011 = estimate_gradient(grid, x0, y1, z1, vx, vy, max_gx, max_gy, max_gz);
+            let g111 = estimate_gradient(grid, x1, y1, z1, vx, vy, max_gx, max_gy, max_gz);
+
+            // Trilinear interpolation
+            let lerp = |a: f32, b: f32, t: f32| a + t * (b - a);
+            let mut n = [0.0f32; 3];
+            for c in 0..3 {
+                let c00 = lerp(g000[c], g100[c], tx);
+                let c10 = lerp(g010[c], g110[c], tx);
+                let c01 = lerp(g001[c], g101[c], tx);
+                let c11 = lerp(g011[c], g111[c], tx);
+                let c0 = lerp(c00, c10, ty);
+                let c1 = lerp(c01, c11, ty);
+                n[c] = lerp(c0, c1, tz);
+            }
+
+            // Normalize
+            let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            if len > 1e-10 && len.is_finite() {
+                [n[0] / len, n[1] / len, n[2] / len]
+            } else {
+                [0.0, 1.0, 0.0]
+            }
         })
-        .collect()
+        .collect();
+
+    // Apply Laplacian normal smoothing (2 iterations) to further reduce
+    // high-frequency noise from chaotic fractal SDF gradients.
+    laplacian_smooth_normals(&mut normals, indices, positions.len(), 2, 0.5);
+
+    normals
+}
+
+/// Laplacian smoothing of normals using triangle adjacency.
+///
+/// Each vertex normal is blended towards the average of its neighbors'
+/// normals by factor `lambda` (0..1). This is repeated for `iterations`.
+///
+/// When `indices` is empty, we skip smoothing (no adjacency to build).
+fn laplacian_smooth_normals(
+    normals: &mut Vec<[f32; 3]>,
+    _indices: &[u32],
+    _vertex_count: usize,
+    _iterations: u32,
+    _lambda: f32,
+) {
+    // Note: Full Laplacian smoothing requires building an adjacency
+    // structure from triangle indices. For the initial implementation
+    // we provide this as a framework — the trilinear interpolation above
+    // already provides a significant improvement. Full adjacency-based
+    // smoothing can be enabled by uncommenting the block below when
+    // indices are passed in from the caller.
+    //
+    // For now, we skip if no indices are provided (the Phase C caller
+    // passes empty indices to keep the signature compatible).
+
+    if _indices.is_empty() || normals.is_empty() {
+        return;
+    }
+
+    // Build adjacency: for each vertex, collect its neighbor vertex indices
+    let mut neighbors: Vec<Vec<u32>> = vec![Vec::new(); normals.len()];
+    for tri in _indices.chunks_exact(3) {
+        let (a, b, c) = (tri[0], tri[1], tri[2]);
+        neighbors[a as usize].push(b);
+        neighbors[a as usize].push(c);
+        neighbors[b as usize].push(a);
+        neighbors[b as usize].push(c);
+        neighbors[c as usize].push(a);
+        neighbors[c as usize].push(b);
+    }
+    // Deduplicate neighbors
+    for nb in &mut neighbors {
+        nb.sort_unstable();
+        nb.dedup();
+    }
+
+    let mut temp = normals.clone();
+    for _ in 0.._iterations {
+        for (i, nb) in neighbors.iter().enumerate() {
+            if nb.is_empty() {
+                continue;
+            }
+            let mut avg = [0.0f32; 3];
+            for &j in nb {
+                avg[0] += normals[j as usize][0];
+                avg[1] += normals[j as usize][1];
+                avg[2] += normals[j as usize][2];
+            }
+            let k = nb.len() as f32;
+            temp[i][0] = normals[i][0] * (1.0 - _lambda) + (avg[0] / k) * _lambda;
+            temp[i][1] = normals[i][1] * (1.0 - _lambda) + (avg[1] / k) * _lambda;
+            temp[i][2] = normals[i][2] * (1.0 - _lambda) + (avg[2] / k) * _lambda;
+
+            // Renormalize
+            let len = (temp[i][0] * temp[i][0] + temp[i][1] * temp[i][1] + temp[i][2] * temp[i][2]).sqrt();
+            if len > 1e-10 {
+                temp[i][0] /= len;
+                temp[i][1] /= len;
+                temp[i][2] /= len;
+            }
+        }
+        std::mem::swap(normals, &mut temp);
+    }
 }
 
 /// Compute face normals from triangle cross products, accumulated per vertex.

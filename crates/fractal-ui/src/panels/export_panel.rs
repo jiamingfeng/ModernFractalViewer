@@ -28,6 +28,11 @@ impl ExportPanel {
                                 mesh::MeshMethod::MarchingCubes,
                                 "Marching Cubes",
                             );
+                            ui.selectable_value(
+                                &mut state.export_config.method,
+                                mesh::MeshMethod::SurfaceNets,
+                                "Surface Nets",
+                            );
                         });
                 });
 
