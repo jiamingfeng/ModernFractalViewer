@@ -43,12 +43,20 @@ impl From<gltf_json::Error> for ExportError {
 ///
 /// The resulting file contains a single mesh with POSITION, NORMAL,
 /// optional COLOR_0 (when `mesh.colors` is non-empty), and u32 indices.
-pub fn export_glb(mesh: &super::MeshData, path: &Path) -> Result<(), ExportError> {
+///
+/// When `material` is `Some`, a PBR metallic-roughness material is attached
+/// to the mesh primitive so that glTF viewers render it with physically-based
+/// lighting.
+pub fn export_glb(
+    mesh: &super::MeshData,
+    material: Option<&super::ExportMaterial>,
+    path: &Path,
+) -> Result<(), ExportError> {
     if mesh.positions.is_empty() {
         return Err(ExportError::EmptyMesh);
     }
 
-    let glb_bytes = build_glb(mesh)?;
+    let glb_bytes = build_glb(mesh, material)?;
 
     let mut file = std::fs::File::create(path)?;
     file.write_all(&glb_bytes)?;
@@ -56,7 +64,10 @@ pub fn export_glb(mesh: &super::MeshData, path: &Path) -> Result<(), ExportError
 }
 
 /// Build the complete GLB byte buffer in memory.
-fn build_glb(mesh: &super::MeshData) -> Result<Vec<u8>, ExportError> {
+fn build_glb(
+    mesh: &super::MeshData,
+    material: Option<&super::ExportMaterial>,
+) -> Result<Vec<u8>, ExportError> {
     let has_colors = !mesh.colors.is_empty();
     let vertex_count = mesh.positions.len();
     let index_count = mesh.indices.len();
@@ -282,11 +293,39 @@ fn build_glb(mesh: &super::MeshData) -> Result<Vec<u8>, ExportError> {
         );
     }
 
+    // ── Build optional PBR material ──────────────────────────────────────
+    let (materials, prim_material) = if let Some(mat) = material {
+        let pbr = gltf_json::material::PbrMetallicRoughness {
+            base_color_factor: gltf_json::material::PbrBaseColorFactor(mat.base_color_factor),
+            base_color_texture: None,
+            metallic_factor: gltf_json::material::StrengthFactor(mat.metallic_factor),
+            roughness_factor: gltf_json::material::StrengthFactor(mat.roughness_factor),
+            metallic_roughness_texture: None,
+            extensions: None,
+            extras: extras.clone(),
+        };
+        let gltf_mat = gltf_json::Material {
+            pbr_metallic_roughness: pbr,
+            emissive_factor: gltf_json::material::EmissiveFactor(mat.emissive_factor),
+            alpha_mode: Checked::Valid(gltf_json::material::AlphaMode::Opaque),
+            alpha_cutoff: None,
+            double_sided: mat.double_sided,
+            normal_texture: None,
+            occlusion_texture: None,
+            emissive_texture: None,
+            extensions: None,
+            extras: extras.clone(),
+        };
+        (vec![gltf_mat], Some(gltf_json::Index::new(0)))
+    } else {
+        (vec![], None)
+    };
+
     let primitive = gltf_json::mesh::Primitive {
         attributes,
         indices: Some(gltf_json::Index::new(indices_acc)),
         mode: Checked::Valid(gltf_json::mesh::Mode::Triangles),
-        material: None,
+        material: prim_material,
         targets: None,
         extensions: None,
         extras: extras.clone(),
@@ -333,6 +372,7 @@ fn build_glb(mesh: &super::MeshData) -> Result<Vec<u8>, ExportError> {
             extensions: None,
             extras: extras.clone(),
         }],
+        materials,
         ..Default::default()
     };
 
@@ -404,7 +444,7 @@ fn compute_bounding_box(positions: &[[f32; 3]]) -> ([f32; 3], [f32; 3]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mesh::MeshData;
+    use crate::mesh::{ExportMaterial, MeshData};
 
     /// Build a simple triangle mesh for testing.
     fn triangle_mesh() -> MeshData {
@@ -444,7 +484,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.glb");
 
-        export_glb(&mesh, &path).unwrap();
+        export_glb(&mesh, None, &path).unwrap();
 
         let bytes = std::fs::read(&path).unwrap();
 
@@ -479,7 +519,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("empty.glb");
 
-        let result = export_glb(&mesh, &path);
+        let result = export_glb(&mesh, None, &path);
         assert!(result.is_err());
         assert!(
             matches!(result.unwrap_err(), ExportError::EmptyMesh),
@@ -493,7 +533,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("colored.glb");
 
-        export_glb(&mesh, &path).unwrap();
+        export_glb(&mesh, None, &path).unwrap();
 
         let bytes = std::fs::read(&path).unwrap();
         let json_str = extract_json(&bytes);
@@ -511,7 +551,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("aligned.glb");
 
-            export_glb(&mesh, &path).unwrap();
+            export_glb(&mesh, None, &path).unwrap();
 
             let bytes = std::fs::read(&path).unwrap();
             assert_eq!(
@@ -538,7 +578,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("bbox.glb");
 
-        export_glb(&mesh, &path).unwrap();
+        export_glb(&mesh, None, &path).unwrap();
 
         let bytes = std::fs::read(&path).unwrap();
         let json_str = extract_json(&bytes);
@@ -564,7 +604,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("no_color.glb");
 
-        export_glb(&mesh, &path).unwrap();
+        export_glb(&mesh, None, &path).unwrap();
 
         let bytes = std::fs::read(&path).unwrap();
         let json_str = extract_json(&bytes);
@@ -573,5 +613,67 @@ mod tests {
             !json_str.contains("COLOR_0"),
             "JSON should NOT contain COLOR_0 when colors are empty"
         );
+    }
+
+    #[test]
+    fn test_pbr_material_present() {
+        let mesh = triangle_mesh();
+        let mat = ExportMaterial {
+            base_color_factor: [0.8, 0.2, 0.1, 1.0],
+            metallic_factor: 0.3,
+            roughness_factor: 0.7,
+            emissive_factor: [0.01, 0.01, 0.01],
+            double_sided: true,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pbr.glb");
+
+        export_glb(&mesh, Some(&mat), &path).unwrap();
+
+        let bytes = std::fs::read(&path).unwrap();
+        let json_str = extract_json(&bytes);
+
+        let root: serde_json::Value = serde_json::from_str(json_str.trim()).unwrap();
+
+        // Material should exist
+        let materials = root["materials"].as_array().expect("materials array");
+        assert_eq!(materials.len(), 1);
+
+        let pbr = &materials[0]["pbrMetallicRoughness"];
+        assert!(pbr.is_object(), "pbrMetallicRoughness should be present");
+
+        // Check roughness and metallic
+        let roughness = pbr["roughnessFactor"].as_f64().unwrap();
+        assert!((roughness - 0.7).abs() < 1e-5, "roughness mismatch: {roughness}");
+        let metallic = pbr["metallicFactor"].as_f64().unwrap();
+        assert!((metallic - 0.3).abs() < 1e-5, "metallic mismatch: {metallic}");
+
+        // Primitive references material 0
+        let prim = &root["meshes"][0]["primitives"][0];
+        assert_eq!(prim["material"].as_u64(), Some(0));
+    }
+
+    #[test]
+    fn test_no_material_when_none() {
+        let mesh = triangle_mesh();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("no_mat.glb");
+
+        export_glb(&mesh, None, &path).unwrap();
+
+        let bytes = std::fs::read(&path).unwrap();
+        let json_str = extract_json(&bytes);
+
+        let root: serde_json::Value = serde_json::from_str(json_str.trim()).unwrap();
+
+        // No materials array (or empty)
+        assert!(
+            root["materials"].is_null() || root["materials"].as_array().map_or(true, |a| a.is_empty()),
+            "materials should be absent or empty when no material is provided"
+        );
+
+        // Primitive should not reference a material
+        let prim = &root["meshes"][0]["primitives"][0];
+        assert!(prim["material"].is_null(), "primitive should have no material");
     }
 }

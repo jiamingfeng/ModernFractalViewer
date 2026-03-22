@@ -35,6 +35,7 @@ struct PendingGpuReadback {
     iso_level: f32,
     compute_normals: bool,
     color_config: fractal_core::sdf::ColorConfig,
+    lighting_config: fractal_core::sdf::LightingConfig,
 }
 
 /// Splash screen state, present during the first few frames of rendering.
@@ -1406,6 +1407,7 @@ impl App {
                     iso_level: config.iso_level,
                     compute_normals: config.compute_normals,
                     color_config: self.ui_state.color_config.clone(),
+                    lighting_config: self.ui_state.lighting_config.clone(),
                 });
             }
             Err(_slab_info) => {
@@ -1437,6 +1439,7 @@ impl App {
                     iso_level: config.iso_level,
                     compute_normals: config.compute_normals,
                     color_config: self.ui_state.color_config.clone(),
+                    lighting_config: self.ui_state.lighting_config.clone(),
                 };
                 self.spawn_export_thread(grid, pending);
             }
@@ -1455,6 +1458,7 @@ impl App {
             iso_level,
             compute_normals,
             color_config,
+            lighting_config,
             ..
         } = pending;
 
@@ -1470,7 +1474,8 @@ impl App {
         // CPU phase: background thread for mesh extraction + glTF export
         self.export_thread = Some(std::thread::spawn(move || {
             use fractal_core::mesh::{
-                dual_contouring, marching_cubes, surface_nets, gltf_export, palette, MeshMethod,
+                dual_contouring, marching_cubes, surface_nets, gltf_export, palette,
+                ExportMaterial, MeshMethod,
             };
 
             let progress_cb = {
@@ -1543,8 +1548,12 @@ impl App {
                 *p = 0.9;
             }
 
+            // Build PBR material from the lighting/color config
+            let export_material = ExportMaterial::from_lighting(&lighting_config, &color_config);
+
             // Export to glTF (progress 0.9 → 1.0)
-            gltf_export::export_glb(&mesh, &path).map_err(|e| e.to_string())?;
+            gltf_export::export_glb(&mesh, Some(&export_material), &path)
+                .map_err(|e| e.to_string())?;
 
             if let Ok(mut p) = progress.lock() {
                 *p = 1.0;
