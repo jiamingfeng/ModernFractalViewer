@@ -299,8 +299,11 @@ fn build_glb(mesh: &super::MeshData) -> Result<Vec<u8>, ExportError> {
         extras: extras.clone(),
     };
 
+    // glTF uses metres as its base unit.  Our internal coordinates are in
+    // centimetres, so we apply a 0.01 scale on the root node.
     let node = gltf_json::Node {
         mesh: Some(gltf_json::Index::new(0)),
+        scale: Some([0.01, 0.01, 0.01]),
         ..Default::default()
     };
 

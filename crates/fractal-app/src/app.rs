@@ -826,7 +826,7 @@ impl App {
                             .show(ctx, |ui| {
                                 ui.label(format!("Version: {}", self.ui_state.version_info));
                                 ui.label(format!("FPS: {:.1}", 1.0 / (self.last_frame.elapsed().as_secs_f32() + 0.001)));
-                                ui.label(format!("Camera: ({:.2}, {:.2}, {:.2})",
+                                ui.label(format!("Camera: ({:.2}, {:.2}, {:.2}) cm",
                                     self.camera.position.x,
                                     self.camera.position.y,
                                     self.camera.position.z));

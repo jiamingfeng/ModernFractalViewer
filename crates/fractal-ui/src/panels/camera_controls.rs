@@ -35,9 +35,9 @@ impl CameraControlsPanel {
                 }
             });
 
-            // Position display
+            // Position display (cm)
             ui.horizontal(|ui| {
-                ui.label("Position:");
+                ui.label("Position (cm):");
                 ui.label(format!("{:.2}, {:.2}, {:.2}",
                     camera.position.x,
                     camera.position.y,

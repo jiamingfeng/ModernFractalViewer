@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 /// Intermediate mesh representation, decoupled from export format.
 #[derive(Debug, Clone)]
 pub struct MeshData {
-    /// Vertex positions [x, y, z]
+    /// Vertex positions [x, y, z] in centimetres
     pub positions: Vec<[f32; 3]>,
     /// Per-vertex normals [nx, ny, nz]
     pub normals: Vec<[f32; 3]>,
@@ -54,9 +54,9 @@ pub struct ExportConfig {
     pub method: MeshMethod,
     /// Grid cells per axis (uniform resolution)
     pub resolution: u32,
-    /// Bounding box minimum [x, y, z]
+    /// Bounding box minimum [x, y, z] in centimetres
     pub bounds_min: [f32; 3],
-    /// Bounding box maximum [x, y, z]
+    /// Bounding box maximum [x, y, z] in centimetres
     pub bounds_max: [f32; 3],
     /// Iso-level for surface extraction (typically 0.0 for SDFs)
     pub iso_level: f32,
@@ -69,23 +69,23 @@ impl Default for ExportConfig {
         Self {
             method: MeshMethod::default(),
             resolution: 128,
-            bounds_min: [-1.5, -1.5, -1.5],
-            bounds_max: [1.5, 1.5, 1.5],
+            bounds_min: [-150.0, -150.0, -150.0],
+            bounds_max: [150.0, 150.0, 150.0],
             iso_level: 0.0,
             compute_normals: true,
         }
     }
 }
 
-/// Returns the default bounding box for a given fractal type.
+/// Returns the default bounding box (in cm) for a given fractal type.
 pub fn default_bounds(fractal_type: crate::FractalType) -> ([f32; 3], [f32; 3]) {
     use crate::FractalType::*;
     match fractal_type {
-        Mandelbulb => ([-1.5, -1.5, -1.5], [1.5, 1.5, 1.5]),
-        Menger => ([-1.5, -1.5, -1.5], [1.5, 1.5, 1.5]),
-        Julia3D => ([-2.0, -2.0, -2.0], [2.0, 2.0, 2.0]),
-        Mandelbox => ([-3.0, -3.0, -3.0], [3.0, 3.0, 3.0]),
-        Sierpinski => ([-2.0, -2.0, -2.0], [2.0, 2.0, 2.0]),
-        Apollonian => ([-2.0, -2.0, -2.0], [2.0, 2.0, 2.0]),
+        Mandelbulb => ([-150.0, -150.0, -150.0], [150.0, 150.0, 150.0]),
+        Menger => ([-150.0, -150.0, -150.0], [150.0, 150.0, 150.0]),
+        Julia3D => ([-200.0, -200.0, -200.0], [200.0, 200.0, 200.0]),
+        Mandelbox => ([-300.0, -300.0, -300.0], [300.0, 300.0, 300.0]),
+        Sierpinski => ([-200.0, -200.0, -200.0], [200.0, 200.0, 200.0]),
+        Apollonian => ([-200.0, -200.0, -200.0], [200.0, 200.0, 200.0]),
     }
 }
