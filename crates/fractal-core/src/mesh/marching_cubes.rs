@@ -172,7 +172,13 @@ pub fn extract_mesh(
                     }
                 }
 
-                // Emit triangles from TRI_TABLE
+                // Emit triangles from TRI_TABLE.
+                //
+                // The standard Bourke TRI_TABLE winds triangles so the
+                // cross-product normal points toward the *inside* (negative
+                // SDF region).  To get outward-facing normals in a
+                // right-handed / CCW front-face convention (as glTF expects)
+                // we reverse the winding by emitting vertices in 0-2-1 order.
                 let tri_row = &TRI_TABLE[cube_index as usize];
                 let mut t = 0;
                 while t < 16 {
@@ -188,10 +194,10 @@ pub fn extract_mesh(
                         colors.push([trap, 0.0, 0.0, 0.0]);
                     }
 
-                    // Wind triangles consistently
+                    // Reversed winding: 0, 2, 1  (instead of 0, 1, 2)
                     indices.push(base_idx);
-                    indices.push(base_idx + 1);
                     indices.push(base_idx + 2);
+                    indices.push(base_idx + 1);
 
                     t += 3;
                 }
@@ -253,7 +259,8 @@ fn compute_gradient_normals(
             let gy = (fy.round() as u32).min(max_gy);
             let gz = (fz.round() as u32).min(max_gz);
 
-            // Central differences with boundary clamping
+            // Central differences with boundary clamping.
+            // Use two-sided differences when possible; one-sided at boundaries.
             let xm = if gx > 0 { gx - 1 } else { gx };
             let xp = if gx < max_gx { gx + 1 } else { gx };
             let ym = if gy > 0 { gy - 1 } else { gy };
@@ -261,7 +268,13 @@ fn compute_gradient_normals(
             let zm = if gz > 0 { gz - 1 } else { gz };
             let zp = if gz < max_gz { gz + 1 } else { gz };
 
-            let s = |idx: usize| sanitize(grid[idx][0], 0.0);
+            // Sample grid distance values.  For the fallback when a grid
+            // sample is NaN/Inf we use the *centre* sample so the gradient
+            // contribution in that axis collapses to zero instead of a
+            // bogus large value.
+            let centre = sanitize(grid[grid_index(gx, gy, gz, vx, vy)][0], 0.0);
+            let s = |idx: usize| sanitize(grid[idx][0], centre);
+
             let dfdx = s(grid_index(xp, gy, gz, vx, vy))
                 - s(grid_index(xm, gy, gz, vx, vy));
             let dfdy = s(grid_index(gx, yp, gz, vx, vy))
@@ -269,9 +282,10 @@ fn compute_gradient_normals(
             let dfdz = s(grid_index(gx, gy, zp, vx, vy))
                 - s(grid_index(gx, gy, zm, vx, vy));
 
-            // Normalize — use !(...) so NaN falls to fallback
+            // The SDF gradient points *outward* (direction of increasing
+            // distance), which is the desired normal direction.
             let len = (dfdx * dfdx + dfdy * dfdy + dfdz * dfdz).sqrt();
-            if !(len <= 1e-10) && len.is_finite() {
+            if len > 1e-10 && len.is_finite() {
                 [dfdx / len, dfdy / len, dfdz / len]
             } else {
                 [0.0, 1.0, 0.0] // fallback up vector
@@ -516,8 +530,8 @@ mod tests {
             None,
         );
 
-        // For a sphere SDF centred at origin, normals should point away from
-        // origin: dot(normal, position) > 0 for most vertices.
+        // For a sphere SDF centred at origin, gradient normals should point
+        // away from origin: dot(normal, position) > 0 for most vertices.
         let mut outward_count = 0;
         let total = mesh.positions.len();
         for i in 0..total {
@@ -530,8 +544,105 @@ mod tests {
         }
         let ratio = outward_count as f32 / total as f32;
         assert!(
-            ratio > 0.90,
-            "only {:.1}% of normals point outward (expected >90%)",
+            ratio > 0.95,
+            "only {:.1}% of gradient normals point outward (expected >95%)",
+            ratio * 100.0
+        );
+    }
+
+    #[test]
+    fn face_normals_point_outward() {
+        let res = 16;
+        let grid = make_sphere_grid(res, [-1.0; 3], [1.0; 3], 0.5);
+        // Use compute_normals = false to get face normals from cross product
+        let mesh = extract_mesh(
+            &grid,
+            [res, res, res],
+            [-1.0; 3],
+            [1.0; 3],
+            0.0,
+            false,
+            None,
+        );
+
+        // For a sphere at origin, the face normal derived from the winding
+        // order should also point outward: dot(normal, centroid) > 0.
+        let mut outward_count = 0usize;
+        let total_tris = mesh.indices.len() / 3;
+        for tri in mesh.indices.chunks_exact(3) {
+            let i0 = tri[0] as usize;
+            let i1 = tri[1] as usize;
+            let i2 = tri[2] as usize;
+            let p0 = mesh.positions[i0];
+            let p1 = mesh.positions[i1];
+            let p2 = mesh.positions[i2];
+            // Triangle centroid
+            let cx = (p0[0] + p1[0] + p2[0]) / 3.0;
+            let cy = (p0[1] + p1[1] + p2[1]) / 3.0;
+            let cz = (p0[2] + p1[2] + p2[2]) / 3.0;
+            let n = mesh.normals[i0]; // face normal assigned to all 3 verts
+            let dot = cx * n[0] + cy * n[1] + cz * n[2];
+            if dot > 0.0 {
+                outward_count += 1;
+            }
+        }
+        let ratio = outward_count as f32 / total_tris as f32;
+        assert!(
+            ratio > 0.95,
+            "only {:.1}% of face normals point outward (expected >95%)",
+            ratio * 100.0
+        );
+    }
+
+    #[test]
+    fn winding_consistent_with_normals() {
+        // Verify that the cross product of (v1-v0) × (v2-v0) for each
+        // non-degenerate triangle agrees with the assigned face normal direction.
+        let res = 16;
+        let grid = make_sphere_grid(res, [-1.0; 3], [1.0; 3], 0.5);
+        let mesh = extract_mesh(
+            &grid,
+            [res, res, res],
+            [-1.0; 3],
+            [1.0; 3],
+            0.0,
+            false,
+            None,
+        );
+
+        let mut agree = 0usize;
+        let mut tested = 0usize;
+        for tri in mesh.indices.chunks_exact(3) {
+            let p0 = mesh.positions[tri[0] as usize];
+            let p1 = mesh.positions[tri[1] as usize];
+            let p2 = mesh.positions[tri[2] as usize];
+
+            let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+            let e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+            let cross = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            let cross_len = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
+
+            // Skip degenerate triangles (near-zero area)
+            if cross_len < 1e-10 {
+                continue;
+            }
+            tested += 1;
+
+            let n = mesh.normals[tri[0] as usize];
+            let dot = cross[0] * n[0] + cross[1] * n[1] + cross[2] * n[2];
+            if dot > 0.0 {
+                agree += 1;
+            }
+        }
+        assert!(tested > 0, "no non-degenerate triangles found");
+        let ratio = agree as f32 / tested as f32;
+        assert!(
+            ratio > 0.99,
+            "only {:.1}% of non-degenerate triangles have winding matching normal (expected >99%)",
             ratio * 100.0
         );
     }

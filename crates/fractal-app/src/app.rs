@@ -21,6 +21,21 @@ use crate::session_manager::SessionManager;
 /// Minimum time (seconds) the splash screen is displayed.
 const SPLASH_MIN_DURATION_SECS: f32 = 2.0;
 
+/// Data captured in phase 1 of a non-blocking export, waiting for the GPU
+/// staging buffer to become mapped so the volume can be read back without
+/// blocking the main thread.
+#[cfg(not(target_arch = "wasm32"))]
+struct PendingGpuReadback {
+    path: std::path::PathBuf,
+    rx: std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
+    resolution: u32,
+    bounds_min: [f32; 3],
+    bounds_max: [f32; 3],
+    iso_level: f32,
+    compute_normals: bool,
+    color_config: fractal_core::sdf::ColorConfig,
+}
+
 /// Splash screen state, present during the first few frames of rendering.
 struct SplashState {
     /// Background image texture (fractal render)
@@ -73,6 +88,9 @@ pub struct App {
     /// Shared export progress (written by worker thread, read by UI)
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
     export_progress: std::sync::Arc<std::sync::Mutex<f32>>,
+    /// Pending GPU readback for non-blocking export (path + receiver + export params)
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    pending_gpu_readback: Option<PendingGpuReadback>,
 }
 
 impl App {
@@ -299,6 +317,8 @@ impl App {
             export_thread: None,
             #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
             export_progress: std::sync::Arc::new(std::sync::Mutex::new(0.0)),
+            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+            pending_gpu_readback: None,
         })
     }
     
@@ -1250,9 +1270,19 @@ impl App {
     }
 
     /// Handle mesh export requests from the UI.
+    ///
+    /// The export pipeline is split into three non-blocking phases so the
+    /// viewport stays responsive throughout:
+    ///
+    /// 1. **start_export** — opens file dialog, dispatches GPU compute, and
+    ///    initiates an async buffer map (no blocking `device.poll(Wait)`).
+    /// 2. **poll GPU readback** — each frame we do a lightweight
+    ///    `device.poll(Poll)` and check if the staging buffer is mapped.
+    /// 3. **background thread** — once the grid data is available, a CPU
+    ///    thread runs Marching Cubes + glTF export while the UI keeps running.
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
     fn handle_export_requests(&mut self) {
-        // Poll running export thread
+        // ── Phase 3: poll running background thread ─────────────────────
         if let Some(ref handle) = self.export_thread {
             if handle.is_finished() {
                 let handle = self.export_thread.take().unwrap();
@@ -1281,20 +1311,39 @@ impl App {
             }
         }
 
-        // Start new export
+        // ── Phase 2: poll pending GPU readback ──────────────────────────
+        if self.pending_gpu_readback.is_some() {
+            // Nudge the GPU without blocking
+            self.render_ctx.device.poll(wgpu::Maintain::Poll);
+
+            let compute = self.sdf_compute.as_ref().unwrap();
+            let ready = {
+                let pending = self.pending_gpu_readback.as_ref().unwrap();
+                compute.try_read_volume(&pending.rx)
+            };
+
+            if let Some(grid) = ready {
+                // Take ownership of the pending state
+                let pending = self.pending_gpu_readback.take().unwrap();
+                self.spawn_export_thread(grid, pending);
+            }
+        }
+
+        // ── Phase 1: start new export ───────────────────────────────────
         if self.ui_state.pending_export {
             self.ui_state.pending_export = false;
-            if self.export_thread.is_some() {
+            if self.export_thread.is_some() || self.pending_gpu_readback.is_some() {
                 return; // Already running
             }
             self.start_export();
         }
     }
 
-    /// Starts the mesh export pipeline: GPU SDF sampling → CPU MC → glTF write.
+    /// Phase 1: dispatches GPU compute and initiates async buffer map
+    /// (non-blocking — the file dialog is the only synchronous part).
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
     fn start_export(&mut self) {
-        // Open file dialog
+        // Open file dialog (synchronous, but user-driven)
         let path = rfd::FileDialog::new()
             .set_file_name("fractal.glb")
             .add_filter("glTF Binary", &["glb"])
@@ -1314,7 +1363,7 @@ impl App {
         // Update uniforms so the GPU has the latest fractal params
         self.pipeline.update_uniforms(&self.render_ctx.queue);
 
-        // GPU phase: sample SDF volume (blocking, fast ~10-50ms)
+        // GPU phase: dispatch compute shader (submits GPU work, returns immediately)
         let config = &self.ui_state.export_config;
         let compute = self.sdf_compute.as_mut().unwrap();
         compute.dispatch(
@@ -1325,22 +1374,45 @@ impl App {
             config.bounds_max,
             config.resolution,
         );
-        let grid = compute.read_volume(&self.render_ctx.device);
 
-        // Clone data for the background thread
-        let resolution = config.resolution;
-        let bounds_min = config.bounds_min;
-        let bounds_max = config.bounds_max;
-        let iso_level = config.iso_level;
-        let compute_normals = config.compute_normals;
-        let color_config = self.ui_state.color_config.clone();
+        // Initiate async buffer map — no blocking poll!
+        let rx = compute.initiate_map_async();
+
+        self.ui_state.export_in_progress = true;
+        self.ui_state.export_status = Some("Sampling SDF volume on GPU...".to_string());
+
+        self.pending_gpu_readback = Some(PendingGpuReadback {
+            path,
+            rx,
+            resolution: config.resolution,
+            bounds_min: config.bounds_min,
+            bounds_max: config.bounds_max,
+            iso_level: config.iso_level,
+            compute_normals: config.compute_normals,
+            color_config: self.ui_state.color_config.clone(),
+        });
+    }
+
+    /// Phase 3: spawns a background thread for Marching Cubes + glTF export.
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    fn spawn_export_thread(&mut self, grid: Vec<[f32; 2]>, pending: PendingGpuReadback) {
+        let PendingGpuReadback {
+            path,
+            resolution,
+            bounds_min,
+            bounds_max,
+            iso_level,
+            compute_normals,
+            color_config,
+            ..
+        } = pending;
+
         let progress = self.export_progress.clone();
 
         // Reset progress
         if let Ok(mut p) = progress.lock() {
             *p = 0.0;
         }
-        self.ui_state.export_in_progress = true;
         self.ui_state.export_status = Some("Generating mesh...".to_string());
 
         // CPU phase: background thread for Marching Cubes + glTF export

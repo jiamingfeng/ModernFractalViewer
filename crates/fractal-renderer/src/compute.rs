@@ -237,7 +237,7 @@ impl SdfVolumeCompute {
         queue.submit(std::iter::once(encoder.finish()));
     }
 
-    /// Reads the volume data back from the GPU.
+    /// Reads the volume data back from the GPU (blocking).
     ///
     /// Returns a `Vec<[f32; 2]>` where each element is `[distance, trap]`
     /// for each grid vertex in linear order (x + y*vx + z*vx*vy).
@@ -263,5 +263,51 @@ impl SdfVolumeCompute {
         self.staging_buffer.unmap();
 
         output
+    }
+
+    /// Begins the async buffer map without blocking.
+    ///
+    /// Call this once after [`dispatch`], then poll each frame with
+    /// [`try_read_volume`] until the data is ready.
+    pub fn initiate_map_async(&self) -> std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>> {
+        let buffer_slice = self.staging_buffer.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = tx.send(result);
+        });
+        rx
+    }
+
+    /// Non-blocking attempt to read the volume once the async map completes.
+    ///
+    /// `device.poll(Maintain::Poll)` should be called each frame before this
+    /// to nudge the GPU.  Returns `Some(data)` if the map is ready, or `None`
+    /// if still pending.
+    pub fn try_read_volume(
+        &self,
+        rx: &std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
+    ) -> Option<Vec<[f32; 2]>> {
+        match rx.try_recv() {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                log::error!("Failed to map staging buffer: {e:?}");
+                return None;
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => return None, // still pending
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                log::error!("Map-async channel disconnected");
+                return None;
+            }
+        }
+
+        let buffer_slice = self.staging_buffer.slice(..);
+        let data = buffer_slice.get_mapped_range();
+        let result: &[[f32; 2]] = bytemuck::cast_slice(&data);
+        let output = result.to_vec();
+
+        drop(data);
+        self.staging_buffer.unmap();
+
+        Some(output)
     }
 }
