@@ -2,6 +2,7 @@
 
 pub mod gltf_export;
 pub mod marching_cubes;
+mod mc_tables;
 pub mod palette;
 
 use serde::{Deserialize, Serialize};

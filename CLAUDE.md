@@ -233,15 +233,6 @@ Trait-based storage abstraction (`StorageBackend`) with platform-specific implem
 - **Files**: `fractal-app/src/session_manager.rs` (StorageBackend trait, FileSystemStorage for native, LocalStorageBackend for WASM), `fractal-app/src/config_manager.rs` (settings TOML I/O, WASM localStorage)
 - **Paths**: Native: `{dirs::data_dir()}/ModernFractalViewer/` (saves/ for sessions, settings.toml for config). Android: `{internal_data_path}/` (passed via _data_dir_override). WASM: localStorage keys `fractal_save_*` and `fractal_settings`.
 
-### Mesh Export (SDF → Marching Cubes → glTF)
-
-Exports the current fractal's SDF isosurface as a triangle mesh in glTF 2.0 Binary (.glb) format. The pipeline has three stages: (1) GPU compute shader samples the SDF on a 3D grid, (2) CPU Marching Cubes extracts the triangle mesh, (3) glTF exporter writes the GLB file. Per-vertex colors are computed from orbit trap values using the current palette. Future formats (STL, FBX) can be added alongside glTF.
-
-- **Files**: `fractal-core/src/mesh/mod.rs` (MeshData, ExportConfig, default_bounds()), `fractal-core/src/mesh/marching_cubes.rs` (extract_mesh — **currently a stub returning empty mesh**), `fractal-core/src/mesh/gltf_export.rs` (GLB writer using gltf-json), `fractal-core/src/mesh/palette.rs` (CPU-side palette sampling matching WGSL), `fractal-renderer/src/compute.rs` (SdfVolumeCompute GPU pipeline), `fractal-renderer/shaders/sdf_volume.wgsl` (compute shader), `fractal-renderer/shaders/sdf_common.wgsl` (shared SDF functions), `fractal-ui/src/panels/export_panel.rs` (UI panel), `fractal-app/src/app.rs` (handle_export_requests, start_export)
-- **Data flow**: UI "Export" button → `pending_export` flag → `start_export()` opens file dialog → GPU compute dispatches SDF volume sampling → `read_volume()` copies results to CPU → `extract_mesh()` runs Marching Cubes → `palette::get_vertex_color()` maps trap values to colors → `gltf_export::export_glb()` writes file. Export runs on a background thread with progress bar.
-- **Platform**: Desktop only (Windows/macOS/Linux). Gated behind `#[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]`. The `rfd` file dialog crate does not support Android or WASM.
-- **Status**: Marching Cubes implementation is a stub — the full lookup table implementation is pending. All other stages (GPU compute, glTF export, UI, app integration) are complete and tested.
-
 ## Testing Guidelines
 
 - Do NOT write tests that only assert default values from `Default::default()` or constructors. Default values change frequently and such tests add no behavioral coverage. Tests should verify logic, constraints, invariants, and round-trips instead.
@@ -273,18 +264,4 @@ Exports the current fractal's SDF isosurface as a triangle mesh in glTF 2.0 Bina
 
 Consult these when working on SDF implementations, ray marching, lighting, or rendering code in `raymarcher.wgsl`:
 
-https://iquilezles.org/articles/distfunctions
-https://iquilezles.org/articles/distgradfunctions3d
-https://iquilezles.org/articles/bboxes3d
-https://iquilezles.org/articles/intersectors
-https://iquilezles.org/articles/smoothsteps
-https://iquilezles.org/articles/sigmoids
-https://iquilezles.org/articles/raymarchingdf
-https://iquilezles.org/articles/rmshadows
-https://iquilezles.org/articles/normalsSDF
-https://iquilezles.org/articles/fbmsdf
-https://iquilezles.org/articles/binarysearchsdf
-https://iquilezles.org/articles/fog
-https://iquilezles.org/articles/outdoorslighting
-
-More links can be found in: https://iquilezles.org/articles
+Links can be found in: https://iquilezles.org/articles
