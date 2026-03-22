@@ -28,6 +28,7 @@ const SPLASH_MIN_DURATION_SECS: f32 = 2.0;
 struct PendingGpuReadback {
     path: std::path::PathBuf,
     rx: std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
+    method: fractal_core::mesh::MeshMethod,
     resolution: u32,
     bounds_min: [f32; 3],
     bounds_max: [f32; 3],
@@ -1384,6 +1385,7 @@ impl App {
         self.pending_gpu_readback = Some(PendingGpuReadback {
             path,
             rx,
+            method: config.method,
             resolution: config.resolution,
             bounds_min: config.bounds_min,
             bounds_max: config.bounds_max,
@@ -1393,11 +1395,12 @@ impl App {
         });
     }
 
-    /// Phase 3: spawns a background thread for Marching Cubes + glTF export.
+    /// Phase 3: spawns a background thread for mesh extraction + glTF export.
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
     fn spawn_export_thread(&mut self, grid: Vec<[f32; 2]>, pending: PendingGpuReadback) {
         let PendingGpuReadback {
             path,
+            method,
             resolution,
             bounds_min,
             bounds_max,
@@ -1413,11 +1416,14 @@ impl App {
         if let Ok(mut p) = progress.lock() {
             *p = 0.0;
         }
-        self.ui_state.export_status = Some("Generating mesh...".to_string());
+        let method_name = method.to_string();
+        self.ui_state.export_status = Some(format!("Generating mesh ({method_name})..."));
 
-        // CPU phase: background thread for Marching Cubes + glTF export
+        // CPU phase: background thread for mesh extraction + glTF export
         self.export_thread = Some(std::thread::spawn(move || {
-            use fractal_core::mesh::{marching_cubes, gltf_export, palette};
+            use fractal_core::mesh::{
+                dual_contouring, marching_cubes, gltf_export, palette, MeshMethod,
+            };
 
             let progress_cb = {
                 let progress = progress.clone();
@@ -1428,16 +1434,27 @@ impl App {
                 }
             };
 
-            // Extract mesh
-            let mut mesh = marching_cubes::extract_mesh(
-                &grid,
-                [resolution, resolution, resolution],
-                bounds_min,
-                bounds_max,
-                iso_level,
-                compute_normals,
-                Some(&progress_cb),
-            );
+            // Extract mesh using the selected method
+            let mut mesh = match method {
+                MeshMethod::DualContouring => dual_contouring::extract_mesh(
+                    &grid,
+                    [resolution, resolution, resolution],
+                    bounds_min,
+                    bounds_max,
+                    iso_level,
+                    compute_normals,
+                    Some(&progress_cb),
+                ),
+                MeshMethod::MarchingCubes => marching_cubes::extract_mesh(
+                    &grid,
+                    [resolution, resolution, resolution],
+                    bounds_min,
+                    bounds_max,
+                    iso_level,
+                    compute_normals,
+                    Some(&progress_cb),
+                ),
+            };
 
             // Compute vertex colors from trap values
             let palette_rgba: Vec<[f32; 4]> = color_config

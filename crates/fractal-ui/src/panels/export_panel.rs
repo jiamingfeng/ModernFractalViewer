@@ -20,6 +20,27 @@ impl ExportPanel {
             .show(ui, |ui| {
                 let ranges = &state.settings.export;
 
+                // Method selector
+                ui.horizontal(|ui| {
+                    ui.label("Method:");
+                    egui::ComboBox::from_id_salt("export_method")
+                        .selected_text(state.export_config.method.to_string())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut state.export_config.method,
+                                mesh::MeshMethod::DualContouring,
+                                "Dual Contouring",
+                            );
+                            ui.selectable_value(
+                                &mut state.export_config.method,
+                                mesh::MeshMethod::MarchingCubes,
+                                "Marching Cubes",
+                            );
+                        });
+                });
+
+                ui.add_space(4.0);
+
                 // Resolution selector
                 ui.horizontal(|ui| {
                     ui.label("Resolution:");
