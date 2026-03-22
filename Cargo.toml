@@ -44,6 +44,9 @@ serde_json = "1"
 toml = "0.8"
 base64 = "0.22"
 dirs = "6"
+fast-surface-nets = "0.2"
+gltf-json = "1"
+rfd = "0.15"
 uuid = { version = "1", features = ["v4", "js"] }
 tempfile = "3"
 

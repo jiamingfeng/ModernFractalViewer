@@ -1,6 +1,7 @@
 //! UI state management
 
 use fractal_core::{Camera, FractalParams, FractalType};
+use fractal_core::mesh::ExportConfig;
 use fractal_core::sdf::{ColorConfig, LightingConfig, RayMarchConfig};
 
 use crate::app_settings::AppSettings;
@@ -93,6 +94,18 @@ pub struct UiState {
     pub log_show_warn: bool,
     /// Log filter: show ERROR level
     pub log_show_error: bool,
+
+    // -- Export state (transient, not saved) --
+    /// Export configuration (resolution, bounds, etc.)
+    pub export_config: ExportConfig,
+    /// Request to start an export
+    pub pending_export: bool,
+    /// Export progress (0.0 to 1.0), None if not exporting
+    pub export_progress: Option<f32>,
+    /// Export status message (e.g., "Export complete: path")
+    pub export_status: Option<String>,
+    /// Whether an export is currently in progress
+    pub export_in_progress: bool,
 }
 
 impl Default for UiState {
@@ -126,6 +139,11 @@ impl Default for UiState {
             log_show_warn: true,
             log_show_error: true,
             light_control_active: false,
+            export_config: ExportConfig::default(),
+            pending_export: false,
+            export_progress: None,
+            export_status: None,
+            export_in_progress: false,
         }
     }
 }

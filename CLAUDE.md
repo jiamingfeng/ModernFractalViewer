@@ -64,8 +64,8 @@ The project is a 4-crate Rust workspace. Data flows: `fractal-core` (math/types)
 
 ### Crates
 
-- **`fractal-core`** — Platform-agnostic math: camera, SDF primitives, and all 6 fractal definitions (`FractalType` enum + `FractalParams` struct). No GPU dependencies.
-- **`fractal-renderer`** — wgpu context (`context.rs`), render pipeline (`pipeline.rs`), GPU uniform buffers (`uniforms.rs`), and WGSL shaders (`shaders/`).
+- **`fractal-core`** — Platform-agnostic math: camera, SDF primitives, all 6 fractal definitions (`FractalType` enum + `FractalParams` struct), mesh data types and export (glTF). No GPU dependencies.
+- **`fractal-renderer`** — wgpu context (`context.rs`), render pipeline (`pipeline.rs`), GPU uniform buffers (`uniforms.rs`), compute pipeline for SDF volume sampling (`compute.rs`), and WGSL shaders (`shaders/`). SDF functions are shared between `raymarcher.wgsl` and `sdf_volume.wgsl` via `sdf_common.wgsl`.
 - **`fractal-ui`** — egui immediate-mode UI panels for fractal params, camera, and color settings. `state.rs` manages `UiState`.
 - **`fractal-app`** — Ties everything together. `app.rs` is the main application loop. `main.rs` is the desktop/WASM entry; `lib.rs` exposes the Android entry point (`android_main`).
 
@@ -264,18 +264,4 @@ Trait-based storage abstraction (`StorageBackend`) with platform-specific implem
 
 Consult these when working on SDF implementations, ray marching, lighting, or rendering code in `raymarcher.wgsl`:
 
-https://iquilezles.org/articles/distfunctions
-https://iquilezles.org/articles/distgradfunctions3d
-https://iquilezles.org/articles/bboxes3d
-https://iquilezles.org/articles/intersectors
-https://iquilezles.org/articles/smoothsteps
-https://iquilezles.org/articles/sigmoids
-https://iquilezles.org/articles/raymarchingdf
-https://iquilezles.org/articles/rmshadows
-https://iquilezles.org/articles/normalsSDF
-https://iquilezles.org/articles/fbmsdf
-https://iquilezles.org/articles/binarysearchsdf
-https://iquilezles.org/articles/fog
-https://iquilezles.org/articles/outdoorslighting
-
-More links can be found in: https://iquilezles.org/articles
+Links can be found in: https://iquilezles.org/articles

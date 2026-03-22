@@ -21,6 +21,22 @@ use crate::session_manager::SessionManager;
 /// Minimum time (seconds) the splash screen is displayed.
 const SPLASH_MIN_DURATION_SECS: f32 = 2.0;
 
+/// Data captured in phase 1 of a non-blocking export, waiting for the GPU
+/// staging buffer to become mapped so the volume can be read back without
+/// blocking the main thread.
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+struct PendingGpuReadback {
+    path: std::path::PathBuf,
+    rx: std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
+    method: fractal_core::mesh::MeshMethod,
+    resolution: u32,
+    bounds_min: [f32; 3],
+    bounds_max: [f32; 3],
+    iso_level: f32,
+    compute_normals: bool,
+    color_config: fractal_core::sdf::ColorConfig,
+}
+
 /// Splash screen state, present during the first few frames of rendering.
 struct SplashState {
     /// Background image texture (fractal render)
@@ -64,6 +80,18 @@ pub struct App {
     hot_reloader: Option<crate::hot_reload::HotReloader>,
     /// Shared log buffer for in-app log window
     log_entries: crate::log_capture::LogBuffer,
+    /// GPU compute pipeline for SDF volume sampling (mesh export)
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    sdf_compute: Option<fractal_renderer::compute::SdfVolumeCompute>,
+    /// Background export thread handle
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    export_thread: Option<std::thread::JoinHandle<Result<std::path::PathBuf, String>>>,
+    /// Shared export progress (written by worker thread, read by UI)
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    export_progress: std::sync::Arc<std::sync::Mutex<f32>>,
+    /// Pending GPU readback for non-blocking export (path + receiver + export params)
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    pending_gpu_readback: Option<PendingGpuReadback>,
 }
 
 impl App {
@@ -206,9 +234,9 @@ impl App {
         #[cfg(feature = "hot-reload")]
         let hot_reloader = {
             use fractal_renderer::FractalPipeline;
-            let shader_path = FractalPipeline::shader_path();
+            let shader_paths = FractalPipeline::shader_paths();
             let config_path = data_dir.as_ref().map(|d| d.join("settings.toml"));
-            Some(crate::hot_reload::HotReloader::new(shader_path, config_path))
+            Some(crate::hot_reload::HotReloader::new(shader_paths, config_path))
         };
 
         let thumbnail_capture = ThumbnailCapture::new(
@@ -284,6 +312,14 @@ impl App {
             #[cfg(feature = "hot-reload")]
             hot_reloader,
             log_entries,
+            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+            sdf_compute: None,
+            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+            export_thread: None,
+            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+            export_progress: std::sync::Arc::new(std::sync::Mutex::new(0.0)),
+            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+            pending_gpu_readback: None,
         })
     }
     
@@ -790,7 +826,7 @@ impl App {
                             .show(ctx, |ui| {
                                 ui.label(format!("Version: {}", self.ui_state.version_info));
                                 ui.label(format!("FPS: {:.1}", 1.0 / (self.last_frame.elapsed().as_secs_f32() + 0.001)));
-                                ui.label(format!("Camera: ({:.2}, {:.2}, {:.2})",
+                                ui.label(format!("Camera: ({:.2}, {:.2}, {:.2}) cm",
                                     self.camera.position.x,
                                     self.camera.position.y,
                                     self.camera.position.z));
@@ -939,6 +975,8 @@ impl App {
         if self.splash.is_none() {
             self.camera = self.ui_state.camera.clone();
             self.handle_session_requests();
+            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+            self.handle_export_requests();
             self.save_settings_if_dirty();
 
             // Handle "open config file" request from UI
@@ -1230,6 +1268,290 @@ impl App {
             }
             self.ui_state.sessions_dirty = true;
         }
+    }
+
+    /// Handle mesh export requests from the UI.
+    ///
+    /// The export pipeline is split into three non-blocking phases so the
+    /// viewport stays responsive throughout:
+    ///
+    /// 1. **start_export** — opens file dialog, dispatches GPU compute, and
+    ///    initiates an async buffer map (no blocking `device.poll(Wait)`).
+    /// 2. **poll GPU readback** — each frame we do a lightweight
+    ///    `device.poll(Poll)` and check if the staging buffer is mapped.
+    /// 3. **background thread** — once the grid data is available, a CPU
+    ///    thread runs Marching Cubes + glTF export while the UI keeps running.
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    fn handle_export_requests(&mut self) {
+        // ── Phase 3: poll running background thread ─────────────────────
+        if let Some(ref handle) = self.export_thread {
+            if handle.is_finished() {
+                let handle = self.export_thread.take().unwrap();
+                match handle.join() {
+                    Ok(Ok(path)) => {
+                        self.ui_state.export_status =
+                            Some(format!("Exported to {}", path.display()));
+                        log::info!("Mesh exported to {}", path.display());
+                    }
+                    Ok(Err(e)) => {
+                        self.ui_state.export_status = Some(format!("Export failed: {e}"));
+                        log::error!("Mesh export failed: {e}");
+                    }
+                    Err(_) => {
+                        self.ui_state.export_status =
+                            Some("Export failed: thread panicked".to_string());
+                    }
+                }
+                self.ui_state.export_in_progress = false;
+                self.ui_state.export_progress = None;
+            } else {
+                // Update progress from shared state
+                if let Ok(p) = self.export_progress.lock() {
+                    self.ui_state.export_progress = Some(*p);
+                }
+            }
+        }
+
+        // ── Phase 2: poll pending GPU readback ──────────────────────────
+        if self.pending_gpu_readback.is_some() {
+            // Nudge the GPU without blocking
+            self.render_ctx.device.poll(wgpu::Maintain::Poll);
+
+            let compute = self.sdf_compute.as_ref().unwrap();
+            let ready = {
+                let pending = self.pending_gpu_readback.as_ref().unwrap();
+                compute.try_read_volume(&pending.rx)
+            };
+
+            if let Some(grid) = ready {
+                // Take ownership of the pending state
+                let pending = self.pending_gpu_readback.take().unwrap();
+                self.spawn_export_thread(grid, pending);
+            }
+        }
+
+        // ── Phase 1: start new export ───────────────────────────────────
+        if self.ui_state.pending_export {
+            self.ui_state.pending_export = false;
+            if self.export_thread.is_some() || self.pending_gpu_readback.is_some() {
+                return; // Already running
+            }
+            self.start_export();
+        }
+    }
+
+    /// Phase 1: dispatches GPU compute and initiates async buffer map
+    /// (non-blocking — the file dialog is the only synchronous part).
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    fn start_export(&mut self) {
+        // Open file dialog (synchronous, but user-driven)
+        let path = rfd::FileDialog::new()
+            .set_file_name("fractal.glb")
+            .add_filter("glTF Binary", &["glb"])
+            .save_file();
+        let Some(path) = path else {
+            return; // User cancelled
+        };
+
+        // Initialize compute pipeline lazily
+        if self.sdf_compute.is_none() {
+            self.sdf_compute = Some(fractal_renderer::compute::SdfVolumeCompute::new(
+                &self.render_ctx.device,
+                &self.pipeline.uniform_buffer,
+            ));
+        }
+
+        // Update uniforms so the GPU has the latest fractal params
+        self.pipeline.update_uniforms(&self.render_ctx.queue);
+
+        // GPU phase: dispatch compute shader
+        let config = &self.ui_state.export_config;
+        let compute = self.sdf_compute.as_mut().unwrap();
+
+        // Convert bounds from cm (UI units) to SDF-space (÷100).
+        // The SDF functions operate in their original coordinate space (~±1.5 for
+        // Mandelbulb), so the GPU must sample at those positions.
+        let sdf_bounds_min = [
+            config.bounds_min[0] / 100.0,
+            config.bounds_min[1] / 100.0,
+            config.bounds_min[2] / 100.0,
+        ];
+        let sdf_bounds_max = [
+            config.bounds_max[0] / 100.0,
+            config.bounds_max[1] / 100.0,
+            config.bounds_max[2] / 100.0,
+        ];
+
+        self.ui_state.export_in_progress = true;
+        self.ui_state.export_status = Some("Sampling SDF volume on GPU...".to_string());
+
+        match compute.dispatch_single_or_err(
+            &self.render_ctx.device,
+            &self.render_ctx.queue,
+            &self.pipeline.uniform_buffer,
+            sdf_bounds_min,
+            sdf_bounds_max,
+            config.resolution,
+        ) {
+            Ok(_slab_elements) => {
+                // Single slab — use non-blocking async readback
+                let rx = compute.initiate_map_async();
+                self.pending_gpu_readback = Some(PendingGpuReadback {
+                    path,
+                    rx,
+                    method: config.method,
+                    resolution: config.resolution,
+                    bounds_min: sdf_bounds_min,
+                    bounds_max: sdf_bounds_max,
+                    iso_level: config.iso_level,
+                    compute_normals: config.compute_normals,
+                    color_config: self.ui_state.color_config.clone(),
+                });
+            }
+            Err(_slab_info) => {
+                // Multi-slab — do blocking slab-by-slab GPU dispatch + readback,
+                // then spawn the mesh extraction thread.
+                log::info!(
+                    "Volume too large for single GPU dispatch; using multi-slab readback \
+                     (resolution {})",
+                    config.resolution,
+                );
+                let grid = compute.dispatch_and_read(
+                    &self.render_ctx.device,
+                    &self.render_ctx.queue,
+                    &self.pipeline.uniform_buffer,
+                    sdf_bounds_min,
+                    sdf_bounds_max,
+                    config.resolution,
+                );
+                // Create a dummy PendingGpuReadback with a pre-completed channel
+                let (tx, rx) = std::sync::mpsc::channel();
+                let _ = tx.send(Ok(()));
+                let pending = PendingGpuReadback {
+                    path,
+                    rx,
+                    method: config.method,
+                    resolution: config.resolution,
+                    bounds_min: sdf_bounds_min,
+                    bounds_max: sdf_bounds_max,
+                    iso_level: config.iso_level,
+                    compute_normals: config.compute_normals,
+                    color_config: self.ui_state.color_config.clone(),
+                };
+                self.spawn_export_thread(grid, pending);
+            }
+        }
+    }
+
+    /// Phase 3: spawns a background thread for mesh extraction + glTF export.
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    fn spawn_export_thread(&mut self, grid: Vec<[f32; 2]>, pending: PendingGpuReadback) {
+        let PendingGpuReadback {
+            path,
+            method,
+            resolution,
+            bounds_min,
+            bounds_max,
+            iso_level,
+            compute_normals,
+            color_config,
+            ..
+        } = pending;
+
+        let progress = self.export_progress.clone();
+
+        // Reset progress
+        if let Ok(mut p) = progress.lock() {
+            *p = 0.0;
+        }
+        let method_name = method.to_string();
+        self.ui_state.export_status = Some(format!("Generating mesh ({method_name})..."));
+
+        // CPU phase: background thread for mesh extraction + glTF export
+        self.export_thread = Some(std::thread::spawn(move || {
+            use fractal_core::mesh::{
+                dual_contouring, marching_cubes, surface_nets, gltf_export, palette, MeshMethod,
+            };
+
+            let progress_cb = {
+                let progress = progress.clone();
+                move |p: f32| {
+                    // Scale mesh extraction progress to 0..0.8
+                    if let Ok(mut val) = progress.lock() {
+                        *val = p * 0.8;
+                    }
+                }
+            };
+
+            // Extract mesh using the selected method
+            let mut mesh = match method {
+                MeshMethod::DualContouring => dual_contouring::extract_mesh(
+                    &grid,
+                    [resolution, resolution, resolution],
+                    bounds_min,
+                    bounds_max,
+                    iso_level,
+                    compute_normals,
+                    Some(&progress_cb),
+                ),
+                MeshMethod::MarchingCubes => marching_cubes::extract_mesh(
+                    &grid,
+                    [resolution, resolution, resolution],
+                    bounds_min,
+                    bounds_max,
+                    iso_level,
+                    compute_normals,
+                    Some(&progress_cb),
+                ),
+                MeshMethod::SurfaceNets => surface_nets::extract_mesh(
+                    &grid,
+                    [resolution, resolution, resolution],
+                    bounds_min,
+                    bounds_max,
+                    iso_level,
+                    compute_normals,
+                    Some(&progress_cb),
+                ),
+            };
+
+            // Compute vertex colors from trap values (progress 0.8 → 0.9)
+            let palette_rgba: Vec<[f32; 4]> = color_config
+                .palette_colors
+                .iter()
+                .map(|c| [c[0], c[1], c[2], 1.0])
+                .collect();
+            let vertex_count = mesh.positions.len();
+            let mut final_colors = Vec::with_capacity(vertex_count);
+            for i in 0..vertex_count {
+                // mesh.colors stores [trap, 0, 0, 0] from MC extraction
+                let trap = if i < mesh.colors.len() { mesh.colors[i][0] } else { 0.0 };
+                let normal = if i < mesh.normals.len() {
+                    mesh.normals[i]
+                } else {
+                    [0.0, 1.0, 0.0]
+                };
+                final_colors.push(palette::get_vertex_color(
+                    trap,
+                    normal,
+                    &color_config,
+                    &palette_rgba,
+                ));
+            }
+            mesh.colors = final_colors;
+
+            if let Ok(mut p) = progress.lock() {
+                *p = 0.9;
+            }
+
+            // Export to glTF (progress 0.9 → 1.0)
+            gltf_export::export_glb(&mesh, &path).map_err(|e| e.to_string())?;
+
+            if let Ok(mut p) = progress.lock() {
+                *p = 1.0;
+            }
+
+            Ok(path)
+        }));
     }
 
     /// Save the current session. If `overwrite_id` is `Some`, overwrites that slot;

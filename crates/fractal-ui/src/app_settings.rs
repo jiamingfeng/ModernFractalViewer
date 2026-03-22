@@ -373,6 +373,49 @@ impl Default for DebugRanges {
 }
 
 // ---------------------------------------------------------------------------
+// Export ranges
+// ---------------------------------------------------------------------------
+
+/// A named resolution preset for mesh export.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResolutionPreset {
+    /// Grid cells per axis.
+    pub value: u32,
+    /// Display label shown in the combo-box (e.g. "Low (64)").
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExportRanges {
+    pub resolution: IntRange,
+    pub bounds: FloatRange,
+    /// Named resolution presets for the combo-box selector.
+    pub resolution_presets: Vec<ResolutionPreset>,
+}
+
+impl Default for ExportRanges {
+    fn default() -> Self {
+        Self {
+            resolution: IntRange::new(32, 4096),
+            bounds: FloatRange {
+                min: -1000.0,
+                max: 1000.0,
+                speed: Some(1.0),
+                decimals: Some(1),
+                logarithmic: false,
+            },
+            resolution_presets: vec![
+                ResolutionPreset { value: 64,  label: "Low (64)".into() },
+                ResolutionPreset { value: 128, label: "Medium (128)".into() },
+                ResolutionPreset { value: 256, label: "High (256)".into() },
+                ResolutionPreset { value: 512, label: "Very High (512)".into() },
+            ],
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Top-level config
 // ---------------------------------------------------------------------------
 
@@ -386,6 +429,7 @@ pub struct AppSettings {
     pub lighting: LightingRanges,
     pub color: ColorRanges,
     pub debug: DebugRanges,
+    pub export: ExportRanges,
     /// Whether to auto-load the last session on app launch.
     pub auto_load_last_session: bool,
 }
@@ -399,6 +443,7 @@ impl Default for AppSettings {
             lighting: LightingRanges::default(),
             color: ColorRanges::default(),
             debug: DebugRanges::default(),
+            export: ExportRanges::default(),
             auto_load_last_session: false,
         }
     }
