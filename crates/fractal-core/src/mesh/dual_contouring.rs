@@ -307,6 +307,8 @@ pub fn extract_mesh(
     // X-aligned edges: from (gx, gy, gz) to (gx+1, gy, gz)
     // Shared by cells: (gx, cy, cz) where cy ∈ {gy-1, gy}, cz ∈ {gz-1, gz}
     // Requires gy ≥ 1, gz ≥ 1, and gy < vy-1 = dims[1], gz < vz-1 = dims[2]
+    let total_edge_iters = dims[0] + dims[1] + dims[2];
+    let mut edge_done: usize = 0;
     for gx in 0..dims[0] {
         for gy in 1..dims[1] {
             for gz in 1..dims[2] {
@@ -335,6 +337,10 @@ pub fn extract_mesh(
                     }
                 }
             }
+        }
+        edge_done += 1;
+        if let Some(cb) = &progress {
+            cb(0.5 + 0.4 * (edge_done as f32 / total_edge_iters as f32));
         }
     }
 
@@ -366,6 +372,10 @@ pub fn extract_mesh(
                 }
             }
         }
+        edge_done += 1;
+        if let Some(cb) = &progress {
+            cb(0.5 + 0.4 * (edge_done as f32 / total_edge_iters as f32));
+        }
     }
 
     // Z-aligned edges: from (gx, gy, gz) to (gx, gy, gz+1)
@@ -395,6 +405,10 @@ pub fn extract_mesh(
                     }
                 }
             }
+        }
+        edge_done += 1;
+        if let Some(cb) = &progress {
+            cb(0.5 + 0.4 * (edge_done as f32 / total_edge_iters as f32));
         }
     }
 

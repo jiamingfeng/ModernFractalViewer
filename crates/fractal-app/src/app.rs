@@ -1476,8 +1476,9 @@ impl App {
             let progress_cb = {
                 let progress = progress.clone();
                 move |p: f32| {
+                    // Scale mesh extraction progress to 0..0.8
                     if let Ok(mut val) = progress.lock() {
-                        *val = p;
+                        *val = p * 0.8;
                     }
                 }
             };
@@ -1504,7 +1505,7 @@ impl App {
                 ),
             };
 
-            // Compute vertex colors from trap values
+            // Compute vertex colors from trap values (progress 0.8 → 0.9)
             let palette_rgba: Vec<[f32; 4]> = color_config
                 .palette_colors
                 .iter()
@@ -1529,8 +1530,17 @@ impl App {
             }
             mesh.colors = final_colors;
 
-            // Export to glTF
+            if let Ok(mut p) = progress.lock() {
+                *p = 0.9;
+            }
+
+            // Export to glTF (progress 0.9 → 1.0)
             gltf_export::export_glb(&mesh, &path).map_err(|e| e.to_string())?;
+
+            if let Ok(mut p) = progress.lock() {
+                *p = 1.0;
+            }
+
             Ok(path)
         }));
     }
