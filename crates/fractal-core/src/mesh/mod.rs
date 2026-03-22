@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 /// Intermediate mesh representation, decoupled from export format.
 #[derive(Debug, Clone)]
 pub struct MeshData {
-    /// Vertex positions [x, y, z] in centimetres
+    /// Vertex positions [x, y, z] in SDF-space (approximately metres)
     pub positions: Vec<[f32; 3]>,
     /// Per-vertex normals [nx, ny, nz]
     pub normals: Vec<[f32; 3]>,
@@ -54,9 +54,9 @@ pub struct ExportConfig {
     pub method: MeshMethod,
     /// Grid cells per axis (uniform resolution)
     pub resolution: u32,
-    /// Bounding box minimum [x, y, z] in centimetres
+    /// Bounding box minimum [x, y, z] in centimetres (converted to SDF-space at dispatch time)
     pub bounds_min: [f32; 3],
-    /// Bounding box maximum [x, y, z] in centimetres
+    /// Bounding box maximum [x, y, z] in centimetres (converted to SDF-space at dispatch time)
     pub bounds_max: [f32; 3],
     /// Iso-level for surface extraction (typically 0.0 for SDFs)
     pub iso_level: f32,

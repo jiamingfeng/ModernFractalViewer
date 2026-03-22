@@ -1364,35 +1364,83 @@ impl App {
         // Update uniforms so the GPU has the latest fractal params
         self.pipeline.update_uniforms(&self.render_ctx.queue);
 
-        // GPU phase: dispatch compute shader (submits GPU work, returns immediately)
+        // GPU phase: dispatch compute shader
         let config = &self.ui_state.export_config;
         let compute = self.sdf_compute.as_mut().unwrap();
-        compute.dispatch(
-            &self.render_ctx.device,
-            &self.render_ctx.queue,
-            &self.pipeline.uniform_buffer,
-            config.bounds_min,
-            config.bounds_max,
-            config.resolution,
-        );
 
-        // Initiate async buffer map — no blocking poll!
-        let rx = compute.initiate_map_async();
+        // Convert bounds from cm (UI units) to SDF-space (÷100).
+        // The SDF functions operate in their original coordinate space (~±1.5 for
+        // Mandelbulb), so the GPU must sample at those positions.
+        let sdf_bounds_min = [
+            config.bounds_min[0] / 100.0,
+            config.bounds_min[1] / 100.0,
+            config.bounds_min[2] / 100.0,
+        ];
+        let sdf_bounds_max = [
+            config.bounds_max[0] / 100.0,
+            config.bounds_max[1] / 100.0,
+            config.bounds_max[2] / 100.0,
+        ];
 
         self.ui_state.export_in_progress = true;
         self.ui_state.export_status = Some("Sampling SDF volume on GPU...".to_string());
 
-        self.pending_gpu_readback = Some(PendingGpuReadback {
-            path,
-            rx,
-            method: config.method,
-            resolution: config.resolution,
-            bounds_min: config.bounds_min,
-            bounds_max: config.bounds_max,
-            iso_level: config.iso_level,
-            compute_normals: config.compute_normals,
-            color_config: self.ui_state.color_config.clone(),
-        });
+        match compute.dispatch_single_or_err(
+            &self.render_ctx.device,
+            &self.render_ctx.queue,
+            &self.pipeline.uniform_buffer,
+            sdf_bounds_min,
+            sdf_bounds_max,
+            config.resolution,
+        ) {
+            Ok(_slab_elements) => {
+                // Single slab — use non-blocking async readback
+                let rx = compute.initiate_map_async();
+                self.pending_gpu_readback = Some(PendingGpuReadback {
+                    path,
+                    rx,
+                    method: config.method,
+                    resolution: config.resolution,
+                    bounds_min: sdf_bounds_min,
+                    bounds_max: sdf_bounds_max,
+                    iso_level: config.iso_level,
+                    compute_normals: config.compute_normals,
+                    color_config: self.ui_state.color_config.clone(),
+                });
+            }
+            Err(_slab_info) => {
+                // Multi-slab — do blocking slab-by-slab GPU dispatch + readback,
+                // then spawn the mesh extraction thread.
+                log::info!(
+                    "Volume too large for single GPU dispatch; using multi-slab readback \
+                     (resolution {})",
+                    config.resolution,
+                );
+                let grid = compute.dispatch_and_read(
+                    &self.render_ctx.device,
+                    &self.render_ctx.queue,
+                    &self.pipeline.uniform_buffer,
+                    sdf_bounds_min,
+                    sdf_bounds_max,
+                    config.resolution,
+                );
+                // Create a dummy PendingGpuReadback with a pre-completed channel
+                let (tx, rx) = std::sync::mpsc::channel();
+                let _ = tx.send(Ok(()));
+                let pending = PendingGpuReadback {
+                    path,
+                    rx,
+                    method: config.method,
+                    resolution: config.resolution,
+                    bounds_min: sdf_bounds_min,
+                    bounds_max: sdf_bounds_max,
+                    iso_level: config.iso_level,
+                    compute_normals: config.compute_normals,
+                    color_config: self.ui_state.color_config.clone(),
+                };
+                self.spawn_export_thread(grid, pending);
+            }
+        }
     }
 
     /// Phase 3: spawns a background thread for mesh extraction + glTF export.
