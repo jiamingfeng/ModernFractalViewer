@@ -135,6 +135,8 @@ For deep zoom, we use double-single arithmetic - representing numbers as `hi + l
 
 ## Development
 
+For build commands, architecture, features, and conventions, see the [Development Guide](docs/DEVELOPMENT_GUIDE.md).
+
 For testing instructions and the full test inventory, see the [Testing Guide](docs/TESTING.md).
 
 ## License

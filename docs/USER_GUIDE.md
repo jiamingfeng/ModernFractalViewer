@@ -8,6 +8,8 @@ A comprehensive reference for all features in the Modern 3D Fractal Viewer.
 
 ### Desktop (Windows / macOS / Linux)
 
+Run the release build or download a pre-built binary from [GitHub Releases](https://github.com/jiamingfeng/ModernFractalViewer/releases):
+
 ```bash
 cargo run -p fractal-app --release
 ```
@@ -20,7 +22,9 @@ Open the [live demo](https://jiamingfeng.github.io/ModernFractalViewer/) in a We
 
 ### Android
 
-Install the APK built with `cargo-ndk`. The app launches fullscreen; tap the hamburger menu (top left) to open the control panel.
+Install the APK from [GitHub Releases](https://github.com/jiamingfeng/ModernFractalViewer/releases). The app launches fullscreen; tap the hamburger menu (top left) to open the control panel.
+
+> **Developer builds**: For building from source (all platforms), see the [Development Guide](DEVELOPMENT_GUIDE.md).
 
 ---
 
