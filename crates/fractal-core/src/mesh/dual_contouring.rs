@@ -928,9 +928,9 @@ mod tests {
     }
 
     #[test]
-    fn dc_fewer_vertices_than_mc() {
-        // DC should produce fewer vertices than MC for the same grid,
-        // because DC shares vertices between adjacent quads.
+    fn dc_and_mc_both_share_vertices() {
+        // Both DC and MC share vertices between adjacent cells.
+        // Verify both produce a compact vertex count (well below naive 3×triangles).
         let res = 12;
         let grid = make_sphere_grid(res, [-1.0; 3], [1.0; 3], 0.5);
 
@@ -945,12 +945,20 @@ mod tests {
             None,
         );
 
-        // DC should have significantly fewer vertices due to vertex sharing
+        // Both should have significantly fewer vertices than 3 × triangle_count
+        let dc_naive = dc_mesh.indices.len(); // 3 verts per triangle if no sharing
+        let mc_naive = mc_mesh.indices.len();
         assert!(
-            dc_mesh.positions.len() < mc_mesh.positions.len(),
-            "DC vertices ({}) should be fewer than MC vertices ({})",
+            dc_mesh.positions.len() < dc_naive,
+            "DC should share vertices: {} verts vs {} naive",
             dc_mesh.positions.len(),
-            mc_mesh.positions.len()
+            dc_naive,
+        );
+        assert!(
+            mc_mesh.positions.len() < mc_naive,
+            "MC should share vertices: {} verts vs {} naive",
+            mc_mesh.positions.len(),
+            mc_naive,
         );
     }
 

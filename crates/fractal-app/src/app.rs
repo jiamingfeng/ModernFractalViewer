@@ -28,12 +28,12 @@ const SPLASH_MIN_DURATION_SECS: f32 = 2.0;
 struct PendingGpuReadback {
     path: std::path::PathBuf,
     rx: std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
-    method: fractal_core::mesh::MeshMethod,
-    resolution: u32,
-    bounds_min: [f32; 3],
-    bounds_max: [f32; 3],
-    iso_level: f32,
-    compute_normals: bool,
+    config: fractal_core::mesh::ExportConfig,
+    /// Effective bounds after boundary extension (SDF-space)
+    effective_bounds_min: [f32; 3],
+    effective_bounds_max: [f32; 3],
+    /// Effective iso-level after adaptive computation
+    effective_iso_level: f32,
     color_config: fractal_core::sdf::ColorConfig,
     lighting_config: fractal_core::sdf::LightingConfig,
 }
@@ -1346,9 +1346,10 @@ impl App {
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
     fn start_export(&mut self) {
         // Open file dialog (synchronous, but user-driven)
+        let fmt = self.ui_state.export_config.export_format;
         let path = rfd::FileDialog::new()
-            .set_file_name("fractal.glb")
-            .add_filter("glTF Binary", &["glb"])
+            .set_file_name(fmt.default_filename())
+            .add_filter(fmt.filter_label(), &[fmt.extension()])
             .save_file();
         let Some(path) = path else {
             return; // User cancelled
@@ -1372,16 +1373,42 @@ impl App {
         // Convert bounds from cm (UI units) to SDF-space (÷100).
         // The SDF functions operate in their original coordinate space (~±1.5 for
         // Mandelbulb), so the GPU must sample at those positions.
-        let sdf_bounds_min = [
+        let mut sdf_bounds_min = [
             config.bounds_min[0] / 100.0,
             config.bounds_min[1] / 100.0,
             config.bounds_min[2] / 100.0,
         ];
-        let sdf_bounds_max = [
+        let mut sdf_bounds_max = [
             config.bounds_max[0] / 100.0,
             config.bounds_max[1] / 100.0,
             config.bounds_max[2] / 100.0,
         ];
+
+        // Compute effective iso-level (adaptive scales with voxel size)
+        let effective_iso = if config.adaptive_iso {
+            let voxel_sizes = [
+                (sdf_bounds_max[0] - sdf_bounds_min[0]) / config.resolution as f32,
+                (sdf_bounds_max[1] - sdf_bounds_min[1]) / config.resolution as f32,
+                (sdf_bounds_max[2] - sdf_bounds_min[2]) / config.resolution as f32,
+            ];
+            let voxel_diag = (voxel_sizes[0] * voxel_sizes[0]
+                + voxel_sizes[1] * voxel_sizes[1]
+                + voxel_sizes[2] * voxel_sizes[2])
+            .sqrt();
+            config.adaptive_iso_factor * voxel_diag
+        } else {
+            config.iso_level
+        };
+
+        // Extend bounds by one voxel + iso-level to capture edge features
+        if config.boundary_extension {
+            for i in 0..3 {
+                let voxel = (sdf_bounds_max[i] - sdf_bounds_min[i]) / config.resolution as f32;
+                let ext = voxel + effective_iso;
+                sdf_bounds_min[i] -= ext;
+                sdf_bounds_max[i] += ext;
+            }
+        }
 
         self.ui_state.export_in_progress = true;
         self.ui_state.export_status = Some("Sampling SDF volume on GPU...".to_string());
@@ -1400,12 +1427,10 @@ impl App {
                 self.pending_gpu_readback = Some(PendingGpuReadback {
                     path,
                     rx,
-                    method: config.method,
-                    resolution: config.resolution,
-                    bounds_min: sdf_bounds_min,
-                    bounds_max: sdf_bounds_max,
-                    iso_level: config.iso_level,
-                    compute_normals: config.compute_normals,
+                    config: config.clone(),
+                    effective_bounds_min: sdf_bounds_min,
+                    effective_bounds_max: sdf_bounds_max,
+                    effective_iso_level: effective_iso,
                     color_config: self.ui_state.color_config.clone(),
                     lighting_config: self.ui_state.lighting_config.clone(),
                 });
@@ -1432,12 +1457,10 @@ impl App {
                 let pending = PendingGpuReadback {
                     path,
                     rx,
-                    method: config.method,
-                    resolution: config.resolution,
-                    bounds_min: sdf_bounds_min,
-                    bounds_max: sdf_bounds_max,
-                    iso_level: config.iso_level,
-                    compute_normals: config.compute_normals,
+                    config: config.clone(),
+                    effective_bounds_min: sdf_bounds_min,
+                    effective_bounds_max: sdf_bounds_max,
+                    effective_iso_level: effective_iso,
                     color_config: self.ui_state.color_config.clone(),
                     lighting_config: self.ui_state.lighting_config.clone(),
                 };
@@ -1451,16 +1474,17 @@ impl App {
     fn spawn_export_thread(&mut self, grid: Vec<[f32; 2]>, pending: PendingGpuReadback) {
         let PendingGpuReadback {
             path,
-            method,
-            resolution,
-            bounds_min,
-            bounds_max,
-            iso_level,
-            compute_normals,
+            config,
+            effective_bounds_min: bounds_min,
+            effective_bounds_max: bounds_max,
+            effective_iso_level: iso_level,
             color_config,
             lighting_config,
             ..
         } = pending;
+        let method = config.method;
+        let resolution = config.resolution;
+        let compute_normals = config.compute_normals;
 
         let progress = self.export_progress.clone();
 
@@ -1471,19 +1495,20 @@ impl App {
         let method_name = method.to_string();
         self.ui_state.export_status = Some(format!("Generating mesh ({method_name})..."));
 
-        // CPU phase: background thread for mesh extraction + glTF export
+        // CPU phase: background thread for mesh extraction + export
         self.export_thread = Some(std::thread::spawn(move || {
             use fractal_core::mesh::{
-                dual_contouring, marching_cubes, surface_nets, gltf_export, palette,
-                ExportMaterial, MeshMethod,
+                dual_contouring, marching_cubes, surface_nets, gltf_export,
+                obj_export, ply_export, palette, smoothing, decimation,
+                ExportFormat, ExportMaterial, MeshMethod, SmoothMethod,
             };
 
             let progress_cb = {
                 let progress = progress.clone();
                 move |p: f32| {
-                    // Scale mesh extraction progress to 0..0.8
+                    // Scale mesh extraction progress to 0..0.6
                     if let Ok(mut val) = progress.lock() {
-                        *val = p * 0.8;
+                        *val = p * 0.6;
                     }
                 }
             };
@@ -1519,6 +1544,46 @@ impl App {
                 ),
             };
 
+            // Apply mesh smoothing (progress 0.6 → 0.7)
+            if config.smooth_iterations > 0 {
+                match config.smooth_method {
+                    SmoothMethod::Laplacian => {
+                        smoothing::laplacian_smooth(
+                            &mut mesh,
+                            config.smooth_iterations,
+                            config.smooth_lambda,
+                        );
+                    }
+                    SmoothMethod::Taubin => {
+                        smoothing::taubin_smooth(
+                            &mut mesh,
+                            config.smooth_iterations,
+                            config.smooth_lambda,
+                        );
+                    }
+                    SmoothMethod::None => {}
+                }
+            }
+            if let Ok(mut p) = progress.lock() {
+                *p = 0.7;
+            }
+
+            // Apply mesh decimation (progress 0.7 → 0.8)
+            if config.decimate && config.decimate_target_ratio < 0.999 {
+                let dec_progress = {
+                    let progress = progress.clone();
+                    move |dp: f32| {
+                        if let Ok(mut val) = progress.lock() {
+                            *val = 0.7 + dp * 0.1;
+                        }
+                    }
+                };
+                decimation::decimate(&mut mesh, config.decimate_target_ratio, Some(&dec_progress));
+            }
+            if let Ok(mut p) = progress.lock() {
+                *p = 0.8;
+            }
+
             // Compute vertex colors from trap values (progress 0.8 → 0.9)
             let palette_rgba: Vec<[f32; 4]> = color_config
                 .palette_colors
@@ -1528,7 +1593,7 @@ impl App {
             let vertex_count = mesh.positions.len();
             let mut final_colors = Vec::with_capacity(vertex_count);
             for i in 0..vertex_count {
-                // mesh.colors stores [trap, 0, 0, 0] from MC extraction
+                // mesh.colors stores [trap, 0, 0, 0] from extraction
                 let trap = if i < mesh.colors.len() { mesh.colors[i][0] } else { 0.0 };
                 let normal = if i < mesh.normals.len() {
                     mesh.normals[i]
@@ -1551,9 +1616,21 @@ impl App {
             // Build PBR material from the lighting/color config
             let export_material = ExportMaterial::from_lighting(&lighting_config, &color_config);
 
-            // Export to glTF (progress 0.9 → 1.0)
-            gltf_export::export_glb(&mesh, Some(&export_material), &path)
-                .map_err(|e| e.to_string())?;
+            // Export in the selected format (progress 0.9 → 1.0)
+            match config.export_format {
+                ExportFormat::Glb => {
+                    gltf_export::export_glb(&mesh, Some(&export_material), &path)
+                        .map_err(|e| e.to_string())?;
+                }
+                ExportFormat::Obj => {
+                    obj_export::export_obj(&mesh, &path)
+                        .map_err(|e| e.to_string())?;
+                }
+                ExportFormat::Ply => {
+                    ply_export::export_ply(&mesh, &path)
+                        .map_err(|e| e.to_string())?;
+                }
+            }
 
             if let Ok(mut p) = progress.lock() {
                 *p = 1.0;

@@ -1,11 +1,15 @@
 //! Mesh extraction and export from SDF data.
 
+pub mod decimation;
 pub mod dual_contouring;
 pub mod gltf_export;
 pub mod marching_cubes;
 mod mc_tables;
+pub mod obj_export;
 pub mod palette;
+pub mod ply_export;
 mod qef;
+pub mod smoothing;
 pub mod surface_nets;
 
 use serde::{Deserialize, Serialize};
@@ -50,6 +54,89 @@ impl std::fmt::Display for MeshMethod {
     }
 }
 
+/// Mesh smoothing method applied as post-processing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SmoothMethod {
+    /// No smoothing applied.
+    None,
+    /// Laplacian smoothing — simple averaging, causes slight mesh shrinkage.
+    Laplacian,
+    /// Taubin smoothing — alternating positive/negative lambda preserves volume.
+    Taubin,
+}
+
+impl Default for SmoothMethod {
+    fn default() -> Self {
+        SmoothMethod::None
+    }
+}
+
+impl std::fmt::Display for SmoothMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SmoothMethod::None => write!(f, "None"),
+            SmoothMethod::Laplacian => write!(f, "Laplacian"),
+            SmoothMethod::Taubin => write!(f, "Taubin"),
+        }
+    }
+}
+
+/// Export file format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExportFormat {
+    /// glTF 2.0 Binary (.glb) — PBR material, vertex colors, widely supported.
+    Glb,
+    /// Wavefront OBJ (.obj) — text-based, universal compatibility.
+    Obj,
+    /// Stanford PLY (.ply) — binary, per-vertex colors, good for 3D printing.
+    Ply,
+}
+
+impl Default for ExportFormat {
+    fn default() -> Self {
+        ExportFormat::Glb
+    }
+}
+
+impl std::fmt::Display for ExportFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExportFormat::Glb => write!(f, "glTF Binary (.glb)"),
+            ExportFormat::Obj => write!(f, "Wavefront OBJ (.obj)"),
+            ExportFormat::Ply => write!(f, "Stanford PLY (.ply)"),
+        }
+    }
+}
+
+impl ExportFormat {
+    /// File extension (without dot).
+    pub fn extension(&self) -> &'static str {
+        match self {
+            ExportFormat::Glb => "glb",
+            ExportFormat::Obj => "obj",
+            ExportFormat::Ply => "ply",
+        }
+    }
+
+    /// Default filename for the save dialog.
+    pub fn default_filename(&self) -> &'static str {
+        match self {
+            ExportFormat::Glb => "fractal.glb",
+            ExportFormat::Obj => "fractal.obj",
+            ExportFormat::Ply => "fractal.ply",
+        }
+    }
+
+    /// Filter label for file dialogs.
+    pub fn filter_label(&self) -> &'static str {
+        match self {
+            ExportFormat::Glb => "glTF Binary",
+            ExportFormat::Obj => "Wavefront OBJ",
+            ExportFormat::Ply => "Stanford PLY",
+        }
+    }
+}
+
 /// Export configuration set by the UI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -66,6 +153,24 @@ pub struct ExportConfig {
     pub iso_level: f32,
     /// Whether to compute smooth normals from the SDF gradient
     pub compute_normals: bool,
+    /// Whether to auto-compute iso-level from voxel size
+    pub adaptive_iso: bool,
+    /// Factor for adaptive iso-level: `iso = factor * voxel_diagonal`
+    pub adaptive_iso_factor: f32,
+    /// Whether to extend bounds by one voxel to capture edge features
+    pub boundary_extension: bool,
+    /// Mesh smoothing method
+    pub smooth_method: SmoothMethod,
+    /// Number of smoothing iterations (0 = disabled)
+    pub smooth_iterations: u32,
+    /// Smoothing strength (lambda parameter)
+    pub smooth_lambda: f32,
+    /// Export file format
+    pub export_format: ExportFormat,
+    /// Whether to apply mesh decimation
+    pub decimate: bool,
+    /// Target triangle ratio for decimation (0.01–1.0, where 1.0 = no reduction)
+    pub decimate_target_ratio: f32,
 }
 
 impl Default for ExportConfig {
@@ -77,6 +182,15 @@ impl Default for ExportConfig {
             bounds_max: [150.0, 150.0, 150.0],
             iso_level: 0.0,
             compute_normals: true,
+            adaptive_iso: false,
+            adaptive_iso_factor: 0.1,
+            boundary_extension: true,
+            smooth_method: SmoothMethod::None,
+            smooth_iterations: 0,
+            smooth_lambda: 0.5,
+            export_format: ExportFormat::default(),
+            decimate: false,
+            decimate_target_ratio: 0.5,
         }
     }
 }

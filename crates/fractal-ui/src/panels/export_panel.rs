@@ -144,12 +144,155 @@ impl ExportPanel {
                     "Smooth normals",
                 );
 
+                // Boundary extension
+                ui.checkbox(
+                    &mut state.export_config.boundary_extension,
+                    "Extend boundaries",
+                ).on_hover_text(
+                    "Expand sampling volume by one voxel + iso-level on each side \
+                     to capture surface features at the boundary."
+                );
+
+                ui.add_space(4.0);
+
+                // Iso-level controls
+                ui.checkbox(
+                    &mut state.export_config.adaptive_iso,
+                    "Adaptive iso-level",
+                ).on_hover_text(
+                    "Automatically compute iso-level from voxel size. \
+                     Helps preserve thin features at coarser resolutions."
+                );
+                if state.export_config.adaptive_iso {
+                    ui.horizontal(|ui| {
+                        ui.label("  Factor:");
+                        ui.add(
+                            egui::DragValue::new(&mut state.export_config.adaptive_iso_factor)
+                                .range(0.01..=0.5)
+                                .speed(0.005)
+                                .fixed_decimals(2),
+                        );
+                    });
+                } else {
+                    ui.horizontal(|ui| {
+                        ui.label("  Iso level:");
+                        ui.add(
+                            egui::DragValue::new(&mut state.export_config.iso_level)
+                                .range(-1.0..=1.0)
+                                .speed(0.001)
+                                .fixed_decimals(3),
+                        );
+                    });
+                }
+
+                ui.add_space(4.0);
+
+                // Smoothing controls
+                ui.horizontal(|ui| {
+                    ui.label("Smoothing:");
+                    egui::ComboBox::from_id_salt("export_smooth_method")
+                        .selected_text(state.export_config.smooth_method.to_string())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut state.export_config.smooth_method,
+                                mesh::SmoothMethod::None,
+                                "None",
+                            );
+                            ui.selectable_value(
+                                &mut state.export_config.smooth_method,
+                                mesh::SmoothMethod::Laplacian,
+                                "Laplacian",
+                            );
+                            ui.selectable_value(
+                                &mut state.export_config.smooth_method,
+                                mesh::SmoothMethod::Taubin,
+                                "Taubin (volume-preserving)",
+                            );
+                        });
+                });
+                if state.export_config.smooth_method != mesh::SmoothMethod::None {
+                    ui.horizontal(|ui| {
+                        ui.label("  Iterations:");
+                        ui.add(
+                            egui::DragValue::new(&mut state.export_config.smooth_iterations)
+                                .range(1..=10)
+                                .speed(0.1),
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("  Lambda:");
+                        ui.add(
+                            egui::DragValue::new(&mut state.export_config.smooth_lambda)
+                                .range(0.01..=1.0)
+                                .speed(0.01)
+                                .fixed_decimals(2),
+                        );
+                    });
+                }
+
+                ui.add_space(4.0);
+
+                // Decimation controls
+                ui.checkbox(
+                    &mut state.export_config.decimate,
+                    "Simplify mesh",
+                ).on_hover_text(
+                    "Reduce triangle count using Quadric Error Metrics. \
+                     Preserves shape while producing smaller files."
+                );
+                if state.export_config.decimate {
+                    ui.horizontal(|ui| {
+                        ui.label("  Target ratio:");
+                        ui.add(
+                            egui::DragValue::new(&mut state.export_config.decimate_target_ratio)
+                                .range(0.01..=1.0)
+                                .speed(0.01)
+                                .fixed_decimals(0)
+                                .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
+                                .custom_parser(|s| {
+                                    s.trim_end_matches('%')
+                                        .trim()
+                                        .parse::<f64>()
+                                        .ok()
+                                        .map(|v| v / 100.0)
+                                }),
+                        );
+                    });
+                }
+
+                ui.add_space(4.0);
+
+                // Format selector
+                ui.horizontal(|ui| {
+                    ui.label("Format:");
+                    egui::ComboBox::from_id_salt("export_format")
+                        .selected_text(state.export_config.export_format.to_string())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut state.export_config.export_format,
+                                mesh::ExportFormat::Glb,
+                                "glTF Binary (.glb)",
+                            );
+                            ui.selectable_value(
+                                &mut state.export_config.export_format,
+                                mesh::ExportFormat::Obj,
+                                "Wavefront OBJ (.obj)",
+                            );
+                            ui.selectable_value(
+                                &mut state.export_config.export_format,
+                                mesh::ExportFormat::Ply,
+                                "Stanford PLY (.ply)",
+                            );
+                        });
+                });
+
                 ui.add_space(6.0);
 
                 // Export button
                 let can_export = !state.export_in_progress;
+                let button_label = format!("Export as {}", state.export_config.export_format);
                 ui.add_enabled_ui(can_export, |ui| {
-                    if ui.button("Export as glTF (.glb)").clicked() {
+                    if ui.button(&button_label).clicked() {
                         state.pending_export = true;
                     }
                 });

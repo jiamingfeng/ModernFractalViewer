@@ -5,6 +5,7 @@
 
 use super::mc_tables::{CORNER_OFFSETS, EDGE_TABLE, EDGE_VERTICES, TRI_TABLE};
 use super::MeshData;
+use std::collections::HashMap;
 
 /// Replace NaN/Inf with a fallback value.
 #[inline]
@@ -50,6 +51,34 @@ fn interpolate_vertex(
         0.0,
     );
     (pos, trap)
+}
+
+/// Map a local edge index (0–11) within cell `(cx, cy, cz)` to a canonical
+/// representation `(grid_vertex_x, grid_vertex_y, grid_vertex_z, axis)`.
+///
+/// Each edge is identified by the lower grid vertex it starts from and the
+/// axis direction it runs along (0=X, 1=Y, 2=Z). This ensures that shared
+/// edges between adjacent cells map to the same canonical key.
+#[inline]
+fn edge_canonical(cx: u32, cy: u32, cz: u32, edge: usize) -> (u32, u32, u32, u8) {
+    // Edge definitions: (corner0, corner1) from EDGE_VERTICES.
+    // Each edge runs along one axis from one grid vertex to another.
+    // We identify it by the "lower" vertex and the axis.
+    match edge {
+        0  => (cx,     cy,     cz,     0), // edge 0→1, X-axis at (cx, cy, cz)
+        1  => (cx + 1, cy,     cz,     1), // edge 1→2, Y-axis at (cx+1, cy, cz)
+        2  => (cx,     cy + 1, cz,     0), // edge 3→2, X-axis at (cx, cy+1, cz)
+        3  => (cx,     cy,     cz,     1), // edge 0→3, Y-axis at (cx, cy, cz)
+        4  => (cx,     cy,     cz + 1, 0), // edge 4→5, X-axis at (cx, cy, cz+1)
+        5  => (cx + 1, cy,     cz + 1, 1), // edge 5→6, Y-axis at (cx+1, cy, cz+1)
+        6  => (cx,     cy + 1, cz + 1, 0), // edge 7→6, X-axis at (cx, cy+1, cz+1)
+        7  => (cx,     cy,     cz + 1, 1), // edge 4→7, Y-axis at (cx, cy, cz+1)
+        8  => (cx,     cy,     cz,     2), // edge 0→4, Z-axis at (cx, cy, cz)
+        9  => (cx + 1, cy,     cz,     2), // edge 1→5, Z-axis at (cx+1, cy, cz)
+        10 => (cx + 1, cy + 1, cz,     2), // edge 2→6, Z-axis at (cx+1, cy+1, cz)
+        11 => (cx,     cy + 1, cz,     2), // edge 3→7, Z-axis at (cx, cy+1, cz)
+        _  => unreachable!(),
+    }
 }
 
 /// Extract a triangle mesh from a 3D SDF volume using Marching Cubes.
@@ -114,11 +143,22 @@ pub fn extract_mesh(
     let mut colors: Vec<[f32; 4]> = Vec::with_capacity(estimated_tris * 3);
     let mut indices: Vec<u32> = Vec::with_capacity(estimated_tris * 3);
 
+    // Vertex deduplication: shared vertices at cube edges are identified by
+    // their canonical key (grid_vertex_x, grid_vertex_y, grid_vertex_z, axis).
+    // This typically reduces vertex count by ~50%.
+    let mut edge_vertex_map: HashMap<(u32, u32, u32, u8), u32> = HashMap::new();
+
     // Iterate over all cells
     for cz in 0..dims[2] {
         // Report progress per z-slice
         if let Some(cb) = &progress {
             cb(cz as f32 / dims[2] as f32);
+        }
+
+        // Clean up edge vertices from z-planes that are no longer needed.
+        // Edges at z < cz cannot be referenced by any future cell.
+        if cz > 0 {
+            edge_vertex_map.retain(|&(_, _, gz, _), _| gz >= cz);
         }
 
         for cy in 0..dims[1] {
@@ -157,18 +197,28 @@ pub fn extract_mesh(
                     continue;
                 }
 
-                // Compute interpolated vertices for intersected edges
-                let mut edge_verts = [([0.0f32; 3], 0.0f32); 12];
+                // For each intersected edge, compute or reuse the shared vertex.
+                // edge_indices[e] holds the global vertex index for edge e.
+                let mut edge_indices = [0u32; 12];
                 for e in 0..12 {
                     if edge_flags & (1 << e) != 0 {
-                        let [c0, c1] = EDGE_VERTICES[e];
-                        edge_verts[e] = interpolate_vertex(
-                            iso_level,
-                            corner_pos[c0],
-                            corner_pos[c1],
-                            corner_vals[c0],
-                            corner_vals[c1],
-                        );
+                        let key = edge_canonical(cx, cy, cz, e);
+                        edge_indices[e] = *edge_vertex_map
+                            .entry(key)
+                            .or_insert_with(|| {
+                                let [c0, c1] = EDGE_VERTICES[e];
+                                let (pos, trap) = interpolate_vertex(
+                                    iso_level,
+                                    corner_pos[c0],
+                                    corner_pos[c1],
+                                    corner_vals[c0],
+                                    corner_vals[c1],
+                                );
+                                let idx = positions.len() as u32;
+                                positions.push(pos);
+                                colors.push([trap, 0.0, 0.0, 0.0]);
+                                idx
+                            });
                     }
                 }
 
@@ -185,19 +235,15 @@ pub fn extract_mesh(
                     if tri_row[t] < 0 {
                         break;
                     }
-                    let base_idx = positions.len() as u32;
 
-                    for k in 0..3 {
-                        let edge_idx = tri_row[t + k] as usize;
-                        let (pos, trap) = edge_verts[edge_idx];
-                        positions.push(pos);
-                        colors.push([trap, 0.0, 0.0, 0.0]);
-                    }
+                    let i0 = edge_indices[tri_row[t] as usize];
+                    let i1 = edge_indices[tri_row[t + 1] as usize];
+                    let i2 = edge_indices[tri_row[t + 2] as usize];
 
                     // Reversed winding: 0, 2, 1  (instead of 0, 1, 2)
-                    indices.push(base_idx);
-                    indices.push(base_idx + 2);
-                    indices.push(base_idx + 1);
+                    indices.push(i0);
+                    indices.push(i2);
+                    indices.push(i1);
 
                     t += 3;
                 }
@@ -737,5 +783,43 @@ mod tests {
                 c
             );
         }
+    }
+
+    #[test]
+    fn vertex_deduplication_reduces_count() {
+        // With vertex sharing, MC should produce significantly fewer vertices
+        // than 3 × triangle_count (the non-deduplicated case).
+        let res = 16;
+        let grid = make_sphere_grid(res, [-1.0; 3], [1.0; 3], 0.5);
+        let mesh = extract_mesh(
+            &grid,
+            [res, res, res],
+            [-1.0; 3],
+            [1.0; 3],
+            0.0,
+            true,
+            None,
+        );
+
+        let tri_count = mesh.indices.len() / 3;
+        assert!(tri_count > 0, "should have triangles");
+
+        // Without dedup, vertex count would equal 3 × tri_count.
+        // With dedup, vertex count should be significantly less.
+        let max_without_dedup = tri_count * 3;
+        assert!(
+            mesh.positions.len() < max_without_dedup,
+            "vertex dedup should reduce count: {} vertices vs {} max without dedup",
+            mesh.positions.len(),
+            max_without_dedup,
+        );
+
+        // Typically expect ~50% reduction; verify at least 30% reduction
+        let reduction = 1.0 - (mesh.positions.len() as f32 / max_without_dedup as f32);
+        assert!(
+            reduction > 0.3,
+            "expected >30% vertex reduction, got {:.1}%",
+            reduction * 100.0,
+        );
     }
 }

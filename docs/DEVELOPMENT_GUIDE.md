@@ -266,6 +266,18 @@ Toggleable overlay (top-right) showing FPS, version info, camera position, and z
 
 - **Files**: `fractal-app/src/app.rs` (debug egui::Window in render()), `fractal-ui/src/panels/mod.rs` (Debug collapsing section with checkboxes for debug, VSync, auto-rotate)
 
+### Mesh Export
+
+GPU-accelerated SDF volume sampling followed by CPU mesh extraction and file export. Supports three extraction algorithms, post-processing (smoothing, decimation), and multiple output formats.
+
+- **Extraction algorithms**: Marching Cubes (fast, deduplicated vertices), Dual Contouring (watertight, sharp features via QEF), Surface Nets (inherently smooth)
+- **Post-processing**: Laplacian smoothing, Taubin volume-preserving smoothing, QEM mesh decimation
+- **Export formats**: glTF Binary (.glb) with PBR material, Wavefront OBJ (.obj), Stanford PLY (.ply) with per-vertex RGBA
+- **Quality controls**: Adaptive iso-level (scales with voxel size for thin feature preservation), boundary extension (expands sampling volume to avoid clipping)
+- **Files**: `fractal-core/src/mesh/` (all extraction and export modules), `fractal-renderer/src/compute.rs` + `shaders/sdf_volume.wgsl` (GPU SDF sampling), `fractal-app/src/app.rs` (export orchestration: `start_export`, `spawn_export_thread`), `fractal-ui/src/panels/export_panel.rs` (UI)
+- **Data flow**: `ExportConfig` (UI) → GPU compute (SDF volume) → async readback → CPU extraction (MC/DC/SN) → smoothing → decimation → vertex coloring → file export
+- **Platform**: Desktop only (disabled on Android/WASM due to GPU readback requirements)
+
 ### Cross-Platform Storage
 
 Trait-based storage abstraction (`StorageBackend`) with platform-specific implementations. Sessions and config share the same data directory pattern but use different subdirectories/files.
