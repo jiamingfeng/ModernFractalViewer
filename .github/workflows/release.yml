@@ -350,18 +350,33 @@ jobs:
             -o android/app/src/main/jniLibs \
             build -p fractal-app --lib --release
 
+      - name: Decode keystore
+        if: env.KEYSTORE_BASE64 != ''
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_BASE64" | base64 -d > android/release.jks
+
       - name: Build APK with Gradle
         working-directory: android
         env:
           SKIP_CARGO_NDK: 'true'
+          KEYSTORE_FILE: ${{ secrets.ANDROID_KEYSTORE_BASE64 && 'release.jks' || '' }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease
 
       - name: Rename APK
         run: |
-          cp android/app/build/outputs/apk/release/app-release-unsigned.apk \
-             fractal-viewer-v${{ inputs.version }}-android.apk
+          if [ -f android/app/build/outputs/apk/release/app-release.apk ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk \
+               fractal-viewer-v${{ inputs.version }}-android.apk
+          else
+            cp android/app/build/outputs/apk/release/app-release-unsigned.apk \
+               fractal-viewer-v${{ inputs.version }}-android.apk
+          fi
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2

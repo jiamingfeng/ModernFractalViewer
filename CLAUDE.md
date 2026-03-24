@@ -32,7 +32,22 @@ trunk serve --release --port 8080
 # Android - requires cargo-ndk and Android NDK
 cargo install cargo-ndk
 cargo ndk -t arm64-v8a -o android/app/src/main/jniLibs build -p fractal-app --release
-# Then build APK: cd android && ./gradlew assembleDebug
+# Then build APK: cd android && ./gradlew assembleRelease
+
+# Android APK signing (optional, for installable release builds)
+# 1. Generate a keystore:
+#    keytool -genkey -v -keystore android/release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias release
+# 2. Create android/key.properties:
+#    storeFile=../release.jks
+#    storePassword=your_store_password
+#    keyAlias=release
+#    keyPassword=your_key_password
+# 3. Build signed APK: cd android && ./gradlew assembleRelease
+# For CI signing, set these GitHub secrets:
+#   ANDROID_KEYSTORE_BASE64  (base64-encoded .jks file)
+#   ANDROID_KEYSTORE_PASSWORD
+#   ANDROID_KEY_ALIAS
+#   ANDROID_KEY_PASSWORD
 ```
 
 CI enforces `-D warnings` (RUSTFLAGS), so the build fails on any warnings.

@@ -10,12 +10,13 @@
         android:hasCode="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:label="Modern Fractal Viewer"
+        android:label="@string/app_name"
         android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
 
         <!-- NativeActivity that loads our Rust shared library -->
         <activity
             android:name="android.app.NativeActivity"
+            android:label="@string/app_name"
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:exported="true">
 

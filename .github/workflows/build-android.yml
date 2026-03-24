@@ -63,11 +63,11 @@ jobs:
           SKIP_CARGO_NDK: 'true'
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v5
         with:
-          name: fractal-viewer-android
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: fractal-viewer-android-release
+          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 30

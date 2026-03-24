@@ -23,6 +23,8 @@ target
 
 # Android
 android/local.properties
+android/key.properties
+android/*.jks
 android/app/build/
 android/app/src/main/jniLibs/
 android/build/

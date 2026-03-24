@@ -2,6 +2,15 @@
 REM Build script for Android APK
 REM Requirements: ANDROID_NDK_ROOT environment variable set, cargo-ndk installed
 REM Usage: build-android.cmd [debug|release]
+REM
+REM To sign release builds locally, create android\key.properties with:
+REM   storeFile=../release.jks
+REM   storePassword=your_store_password
+REM   keyAlias=release
+REM   keyPassword=your_key_password
+REM
+REM Generate a keystore with:
+REM   keytool -genkey -v -keystore android\release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias release
 
 set BUILD_TYPE=%1
 if "%BUILD_TYPE%"=="" set BUILD_TYPE=debug
@@ -41,7 +50,12 @@ cd ..
 echo.
 echo Build complete!
 if "%BUILD_TYPE%"=="release" (
-    echo APK: android\app\build\outputs\apk\release\app-release-unsigned.apk
+    if exist android\app\build\outputs\apk\release\app-release.apk (
+        echo APK (signed): android\app\build\outputs\apk\release\app-release.apk
+    ) else (
+        echo APK (unsigned): android\app\build\outputs\apk\release\app-release-unsigned.apk
+        echo To sign, create android\key.properties (see instructions at top of this script^)
+    )
 ) else (
     echo APK: android\app\build\outputs\apk\debug\app-debug.apk
 )
