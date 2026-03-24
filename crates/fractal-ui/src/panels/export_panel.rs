@@ -218,7 +218,10 @@ impl ExportPanel {
                                 .range(1..=10)
                                 .speed(0.1),
                         );
-                    });
+                    }).response.on_hover_text(
+                        "Higher values produce smoother meshes but increase export time. \
+                         1\u{2013}3 is fast, 5+ is noticeably slower on large meshes."
+                    );
                     ui.horizontal(|ui| {
                         ui.label("  Lambda:");
                         ui.add(
@@ -227,7 +230,12 @@ impl ExportPanel {
                                 .speed(0.01)
                                 .fixed_decimals(2),
                         );
-                    });
+                    }).response.on_hover_text(
+                        "Controls smoothing strength per iteration. \
+                         Lower values (0.1\u{2013}0.3) give subtle smoothing; \
+                         higher values (0.5+) smooth more aggressively. \
+                         Does not affect export time."
+                    );
                 }
 
                 ui.add_space(4.0);
