@@ -366,7 +366,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew assembleRelease -PappVersionName=${{ inputs.version }}
 
       - name: Rename APK
         run: |

@@ -9,6 +9,19 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+// Parse version from workspace Cargo.toml (single source of truth)
+def cargoToml = file('../../Cargo.toml')
+def cargoVersionLine = cargoToml.text.readLines().find { it.trim().startsWith('version') && it.contains('"') }
+def cargoMatch = (cargoVersionLine =~ /version\s*=\s*"([^"]+)"/)
+def cargoVersionName = cargoMatch ? cargoMatch[0][1] : "0.0.0"
+
+// Allow CI to override via -PappVersionName=x.y.z
+def computedVersionName = project.hasProperty('appVersionName')
+    ? project.property('appVersionName')
+    : cargoVersionName
+def versionParts = computedVersionName.split('\\.')
+def computedVersionCode = versionParts[0].toInteger() * 10000 + versionParts[1].toInteger() * 100 + versionParts[2].toInteger()
+
 android {
     namespace 'com.fractal.viewer'
     compileSdk 35
@@ -18,8 +31,8 @@ android {
         applicationId "com.fractal.viewer"
         minSdk 30
         targetSdk 35
-        versionCode 1
-        versionName "0.1.0"
+        versionCode computedVersionCode
+        versionName computedVersionName
     }
 
     signingConfigs {
