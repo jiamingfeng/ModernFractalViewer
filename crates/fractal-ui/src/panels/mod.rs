@@ -1,5 +1,6 @@
 //! UI panels for fractal viewer
 
+mod benchmark_panel;
 mod fractal_params;
 mod camera_controls;
 mod color_settings;
@@ -7,6 +8,7 @@ mod control_settings_panel;
 mod export_panel;
 mod session_panel;
 
+pub use benchmark_panel::BenchmarkPanel;
 pub use fractal_params::FractalParamsPanel;
 pub use camera_controls::CameraControlsPanel;
 pub use color_settings::ColorSettingsPanel;
@@ -86,6 +88,9 @@ impl FractalPanel {
 
                         ui.add_space(10.0);
                         ExportPanel::show(ui, state);
+
+                        ui.add_space(10.0);
+                        BenchmarkPanel::show(ui, state);
 
                         ui.add_space(10.0);
                         ui.collapsing("Debug", |ui| {

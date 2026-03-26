@@ -345,6 +345,68 @@ Found in the **Debug** collapsible section.
 
 ---
 
+## Benchmarking
+
+### In-App Benchmark
+
+Open the **Benchmark** collapsible section in the control panel (below Export). Click **Start Benchmark** to run a quick GPU performance sweep using the currently selected fractal type.
+
+The benchmark:
+- Temporarily disables VSync for accurate timing
+- Runs 8 scenarios: 4 color modes &times; 2 lighting models at 512&times;512
+- Shows a **live frame time graph** (color-coded: green &lt; 16.67ms, yellow &lt; 33.33ms, red above)
+- Displays a **results table** with Min, Avg, Max, P99, and FPS for each scenario
+- Automatically restores all your parameters when finished
+
+Click **Stop Benchmark** at any time to abort.
+
+### Headless CLI Benchmark
+
+For automated benchmarking (CI, regression tracking), use the headless CLI tool:
+
+```bash
+# Quick benchmark (8 scenarios, 10 frames each)
+cargo run -p fractal-app --bin fractal-bench --features benchmark --release -- --quick
+
+# Full matrix (192 scenarios: 6 fractals × 4 resolutions × 4 color modes × 2 lighting)
+cargo run -p fractal-app --bin fractal-bench --features benchmark --release
+
+# Filter and output options
+cargo run -p fractal-app --bin fractal-bench --features benchmark --release -- \
+    --fractal mandelbulb --resolution 1920x1080 --output json > results.json
+```
+
+The CLI prints GPU info, runs each scenario with warm-up frames, and outputs results in text, JSON, or CSV format. It runs headless (no window) and uses the high-performance GPU adapter.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--fractal <type>` | Filter to one fractal type | all |
+| `--resolution <WxH>` | Filter to one resolution | all |
+| `--frames <N>` | Frames per scenario | 50 |
+| `--warmup <N>` | Warm-up frames | 5 |
+| `--output <format>` | Output: `text`, `json`, `csv` | `text` |
+| `--quick` | Quick mode: 512&times;512, 10 frames | off |
+| `--color-mode <N>` | Filter by color mode (0&ndash;4) | all |
+| `--lighting <N>` | Filter by lighting model (0/1) | all |
+
+### Criterion Benchmarks
+
+For statistical regression tracking with HTML reports:
+
+```bash
+# Run all GPU benchmarks
+cargo bench -p fractal-renderer
+
+# Compare against a saved baseline
+cargo bench -p fractal-renderer -- --save-baseline main
+# ... make changes ...
+cargo bench -p fractal-renderer -- --baseline main
+```
+
+Criterion benchmarks measure: per-fractal-type frame time, per-resolution scaling, pipeline creation, color mode comparison, and lighting model comparison.
+
+---
+
 ## Performance Tips
 
 1. **Lower Ray Steps** (64&ndash;128) while exploring. Increase for final renders.

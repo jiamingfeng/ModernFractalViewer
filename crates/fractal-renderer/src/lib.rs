@@ -5,6 +5,7 @@
 //! - Shader management
 //! - GPU uniform buffers
 
+pub mod benchmark;
 pub mod compute;
 pub mod context;
 pub mod pipeline;

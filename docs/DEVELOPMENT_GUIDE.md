@@ -278,6 +278,21 @@ GPU-accelerated SDF volume sampling followed by CPU mesh extraction and file exp
 - **Data flow**: `ExportConfig` (UI) → GPU compute (SDF volume) → async readback → CPU extraction (MC/DC/SN) → smoothing → decimation → vertex coloring → file export
 - **Platform**: Desktop only (disabled on Android/WASM due to GPU readback requirements)
 
+### Rendering Benchmark System
+
+GPU rendering benchmark system with four components: data types, core engine, headless CLI binary, Criterion micro-benchmarks, and in-app benchmark panel. Measures frame time across a configurable matrix of fractal types, resolutions, color modes, and lighting models.
+
+- **Data types**: `fractal-core/src/benchmark_types.rs` — `BenchmarkScenario` (full `FractalParams` + `Camera` + configs), `BenchmarkResult` (statistics + `TimingMethod`), `BenchmarkReport` (GPU info + results). All serde-enabled for JSON/CSV output.
+- **Core engine**: `fractal-renderer/src/benchmark.rs` — `BenchmarkRunner` with headless GPU setup (`HighPerformance`, not `LowPower`), lightweight render target (RENDER_ATTACHMENT only, no staging buffer), CPU timing via `device.poll(Wait)`, statistics computation (min/max/avg/median/p95/p99/FPS).
+- **CLI binary**: `fractal-app/src/bin/bench.rs` — headless binary behind `benchmark` feature gate, clap argument parsing, filtering by fractal/resolution/color-mode/lighting, text/JSON/CSV output. Run: `cargo run -p fractal-app --bin fractal-bench --features benchmark --release`.
+- **Criterion benchmarks**: `fractal-renderer/benches/render_bench.rs` — 5 benchmark groups (`per_fractal_type`, `per_resolution`, `pipeline_creation`, `color_mode_comparison`, `lighting_model_comparison`) using `iter_custom` for GPU sync. Run: `cargo bench -p fractal-renderer`.
+- **In-app panel**: `fractal-ui/src/panels/benchmark_panel.rs` — egui panel with start/stop, live frame time graph (color-coded), progress bar, results table. State in `UiState` benchmark fields.
+- **App integration**: `fractal-app/src/app.rs` — `InAppBenchmarkState` orchestrates per-frame benchmark advancement, saves/restores user state, disables VSync during measurement, blocks exports/sessions during benchmark.
+- **Data flow**: UI "Start" → `pending_benchmark` flag → App creates `InAppBenchmarkState` (saves user params, disables VSync) → each frame: render scenario, measure, advance → complete: `compute_stats()` → `BenchmarkResult` stored in `UiState` → restore user params.
+- **Default matrix**: 6 fractals × 4 resolutions × 4 color modes (orbit-trap, iteration, normal, combined) × 2 lighting (Blinn-Phong, PBR) = 192 scenarios (CLI). In-app runs a lighter 8-scenario subset.
+- **Headless GPU**: Uses `PowerPreference::HighPerformance` (discrete GPU on hybrid laptops), `adapter.limits()`, `Rgba8Unorm` format. Does NOT reuse `ThumbnailCapture` — creates a minimal texture with only `RENDER_ATTACHMENT` usage.
+- **Platform**: CLI and Criterion work on all desktop platforms. In-app panel works everywhere the main app runs. CLI exits gracefully with error message if no GPU is found.
+
 ### Cross-Platform Storage
 
 Trait-based storage abstraction (`StorageBackend`) with platform-specific implementations. Sessions and config share the same data directory pattern but use different subdirectories/files.
