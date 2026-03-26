@@ -143,6 +143,10 @@ pub fn default_scenarios() -> Vec<BenchmarkScenario> {
 }
 
 /// Filter scenarios by optional criteria.
+///
+/// When `resolution` is provided, scenarios are deduplicated to one per
+/// fractal/color/lighting combination and overridden to the requested size.
+/// Any `WxH` value is accepted.
 pub fn filter_scenarios(
     scenarios: Vec<BenchmarkScenario>,
     fractal: Option<&str>,
@@ -150,17 +154,17 @@ pub fn filter_scenarios(
     color_mode: Option<u32>,
     lighting: Option<u32>,
 ) -> Vec<BenchmarkScenario> {
-    scenarios
+    // When a resolution is specified, keep only the first default resolution
+    // per combination so we can override it below.
+    let dedup_res = resolution.is_some();
+    let first_res = scenarios.first().map(|s| (s.width, s.height));
+
+    let mut result: Vec<BenchmarkScenario> = scenarios
         .into_iter()
         .filter(|s| {
             if let Some(f) = fractal {
                 let f_lower = f.to_lowercase();
                 if !s.fractal_params.fractal_type.name().to_lowercase().contains(&f_lower) {
-                    return false;
-                }
-            }
-            if let Some((w, h)) = resolution {
-                if s.width != w || s.height != h {
                     return false;
                 }
             }
@@ -174,9 +178,28 @@ pub fn filter_scenarios(
                     return false;
                 }
             }
+            if dedup_res {
+                if let Some((fw, fh)) = first_res {
+                    if s.width != fw || s.height != fh {
+                        return false;
+                    }
+                }
+            }
             true
         })
-        .collect()
+        .collect();
+
+    if let Some((w, h)) = resolution {
+        for s in &mut result {
+            let old_res = format!("{}x{}", s.width, s.height);
+            let new_res = format!("{}x{}", w, h);
+            s.name = s.name.replace(&old_res, &new_res);
+            s.width = w;
+            s.height = h;
+        }
+    }
+
+    result
 }
 
 #[cfg(test)]
@@ -199,11 +222,28 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_by_resolution() {
+    fn test_filter_by_default_resolution() {
         let scenarios = default_scenarios();
         let filtered = filter_scenarios(scenarios, None, Some((512, 512)), None, None);
         // 6 fractals × 1 res × 4 color × 2 lighting = 48
         assert_eq!(filtered.len(), 48);
+        for s in &filtered {
+            assert_eq!(s.width, 512);
+            assert_eq!(s.height, 512);
+        }
+    }
+
+    #[test]
+    fn test_filter_by_custom_resolution() {
+        let scenarios = default_scenarios();
+        let filtered = filter_scenarios(scenarios, None, Some((3840, 2160)), None, None);
+        // 6 fractals × 1 res × 4 color × 2 lighting = 48
+        assert_eq!(filtered.len(), 48);
+        for s in &filtered {
+            assert_eq!(s.width, 3840);
+            assert_eq!(s.height, 2160);
+            assert!(s.name.contains("3840x2160"));
+        }
     }
 
     #[test]

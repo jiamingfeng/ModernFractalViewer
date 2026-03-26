@@ -132,8 +132,8 @@ impl BenchmarkPanel {
                 })
                 .collect();
 
-            for window in points.windows(2) {
-                let t = times[(&window[0].x - rect.left()) as usize / x_step.max(0.001) as usize];
+            for (i, window) in points.windows(2).enumerate() {
+                let t = times[i];
                 let color = if t < 16.67 {
                     egui::Color32::from_rgb(80, 200, 80) // green: under 60fps budget
                 } else if t < 33.33 {
