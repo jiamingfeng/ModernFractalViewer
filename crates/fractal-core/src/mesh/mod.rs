@@ -118,12 +118,28 @@ impl ExportFormat {
         }
     }
 
-    /// Default filename for the save dialog.
-    pub fn default_filename(&self) -> &'static str {
+    /// Default filename incorporating the fractal type name and current timestamp.
+    /// Pattern: `{fractal_type}_{YYYYMMDD}_{HHMMSS}.{ext}`, e.g. `mandelbulb_20260331_143022.glb`.
+    /// Spaces in the fractal type name are replaced with underscores and lowercased.
+    pub fn default_filename(&self, fractal_type_name: &str) -> String {
+        let snake = fractal_type_name
+            .chars()
+            .map(|c| if c == ' ' { '_' } else { c.to_ascii_lowercase() })
+            .collect::<String>();
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let (date, time) = unix_to_datetime(ts);
+        format!("{snake}_{date}_{time}.{}", self.extension())
+    }
+
+    /// MIME type for this export format.
+    pub fn mime_type(&self) -> &'static str {
         match self {
-            ExportFormat::Glb => "fractal.glb",
-            ExportFormat::Obj => "fractal.obj",
-            ExportFormat::Ply => "fractal.ply",
+            ExportFormat::Glb => "model/gltf-binary",
+            ExportFormat::Obj => "text/plain",
+            ExportFormat::Ply => "application/octet-stream",
         }
     }
 
@@ -193,6 +209,32 @@ impl Default for ExportConfig {
             decimate_target_ratio: 0.5,
         }
     }
+}
+
+/// Converts Unix epoch seconds to `(YYYYMMDD, HHMMSS)` string pair without external crates.
+fn unix_to_datetime(secs: u64) -> (String, String) {
+    // Time-of-day components
+    let s = (secs % 60) as u32;
+    let m = ((secs / 60) % 60) as u32;
+    let h = ((secs / 3600) % 24) as u32;
+
+    // Gregorian calendar date from days since 1970-01-01
+    // Algorithm: https://howardhinnant.github.io/date_algorithms.html
+    let z = (secs / 86400) as i64 + 719468;
+    let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if mo <= 2 { y + 1 } else { y };
+
+    (
+        format!("{:04}{:02}{:02}", y, mo, d),
+        format!("{:02}{:02}{:02}", h, m, s),
+    )
 }
 
 /// Material properties for glTF PBR export, derived from the app's lighting config.
@@ -285,5 +327,50 @@ pub fn default_bounds(fractal_type: crate::FractalType) -> ([f32; 3], [f32; 3]) 
         Mandelbox => ([-300.0, -300.0, -300.0], [300.0, 300.0, 300.0]),
         Sierpinski => ([-200.0, -200.0, -200.0], [200.0, 200.0, 200.0]),
         Apollonian => ([-200.0, -200.0, -200.0], [200.0, 200.0, 200.0]),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_filename_pattern() {
+        let name = ExportFormat::Glb.default_filename("Mandelbulb");
+        // Should match: mandelbulb_YYYYMMDD_HHMMSS.glb
+        assert!(name.starts_with("mandelbulb_"), "got: {name}");
+        assert!(name.ends_with(".glb"), "got: {name}");
+        // Date+time segment: mandelbulb_20260331_143022.glb  →  17 chars + prefix + ext
+        let parts: Vec<&str> = name.trim_end_matches(".glb").split('_').collect();
+        assert_eq!(parts.len(), 3, "expected 3 underscore-separated segments, got: {name}");
+        assert_eq!(parts[1].len(), 8, "date segment should be 8 chars: {name}");
+        assert_eq!(parts[2].len(), 6, "time segment should be 6 chars: {name}");
+    }
+
+    #[test]
+    fn default_filename_space_to_underscore() {
+        let name = ExportFormat::Obj.default_filename("Menger Sponge");
+        assert!(name.starts_with("menger_sponge_"), "got: {name}");
+        assert!(name.ends_with(".obj"), "got: {name}");
+    }
+
+    #[test]
+    fn mime_types() {
+        assert_eq!(ExportFormat::Glb.mime_type(), "model/gltf-binary");
+        assert_eq!(ExportFormat::Obj.mime_type(), "text/plain");
+        assert_eq!(ExportFormat::Ply.mime_type(), "application/octet-stream");
+    }
+
+    #[test]
+    fn unix_to_datetime_known_value() {
+        // 2025-03-31 14:10:22 UTC = 1743430222 seconds
+        let (date, time) = unix_to_datetime(1743430222);
+        assert_eq!(date, "20250331");
+        assert_eq!(time, "141022");
+
+        // 2000-01-01 00:00:00 UTC = 946684800 seconds
+        let (date2, time2) = unix_to_datetime(946684800);
+        assert_eq!(date2, "20000101");
+        assert_eq!(time2, "000000");
     }
 }

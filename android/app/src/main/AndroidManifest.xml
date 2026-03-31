@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Required for Downloads writes on API ≤ 28. Scoped storage on API 29+ needs no permission. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
     <!-- Required for Vulkan rendering -->
     <uses-feature android:name="android.hardware.vulkan.level" android:version="1" android:required="true" />
     <uses-feature android:glEsVersion="0x00030001" android:required="false" />

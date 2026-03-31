@@ -70,3 +70,5 @@ tempfile.workspace = true
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["native-activity"] }
 android_logger = "0.14"
+jni = { version = "0.21", default-features = false }
+ndk-context = "0.1"

@@ -28,7 +28,7 @@ const SPLASH_MIN_DURATION_SECS: f32 = 2.0;
 /// Data captured in phase 1 of a non-blocking export, waiting for the GPU
 /// staging buffer to become mapped so the volume can be read back without
 /// blocking the main thread.
-#[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+#[cfg(not(target_arch = "wasm32"))]
 struct PendingGpuReadback {
     path: std::path::PathBuf,
     rx: std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
@@ -111,16 +111,16 @@ pub struct App {
     /// Shared log buffer for in-app log window
     log_entries: crate::log_capture::LogBuffer,
     /// GPU compute pipeline for SDF volume sampling (mesh export)
-    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    #[cfg(not(target_arch = "wasm32"))]
     sdf_compute: Option<fractal_renderer::compute::SdfVolumeCompute>,
     /// Background export thread handle
-    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    #[cfg(not(target_arch = "wasm32"))]
     export_thread: Option<std::thread::JoinHandle<Result<std::path::PathBuf, String>>>,
     /// Shared export progress (written by worker thread, read by UI)
-    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    #[cfg(not(target_arch = "wasm32"))]
     export_progress: std::sync::Arc<std::sync::Mutex<f32>>,
     /// Pending GPU readback for non-blocking export (path + receiver + export params)
-    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    #[cfg(not(target_arch = "wasm32"))]
     pending_gpu_readback: Option<PendingGpuReadback>,
     /// In-app benchmark orchestration state
     benchmark_state: Option<InAppBenchmarkState>,
@@ -344,13 +344,13 @@ impl App {
             #[cfg(feature = "hot-reload")]
             hot_reloader,
             log_entries,
-            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+            #[cfg(not(target_arch = "wasm32"))]
             sdf_compute: None,
-            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+            #[cfg(not(target_arch = "wasm32"))]
             export_thread: None,
-            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+            #[cfg(not(target_arch = "wasm32"))]
             export_progress: std::sync::Arc::new(std::sync::Mutex::new(0.0)),
-            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+            #[cfg(not(target_arch = "wasm32"))]
             pending_gpu_readback: None,
             benchmark_state: None,
         })
@@ -1010,7 +1010,7 @@ impl App {
             self.handle_benchmark_requests();
             if !self.ui_state.benchmark_running {
                 self.handle_session_requests();
-                #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+                #[cfg(not(target_arch = "wasm32"))]
                 self.handle_export_requests();
             }
             self.save_settings_if_dirty();
@@ -1487,7 +1487,7 @@ impl App {
     ///    `device.poll(Poll)` and check if the staging buffer is mapped.
     /// 3. **background thread** — once the grid data is available, a CPU
     ///    thread runs Marching Cubes + glTF export while the UI keeps running.
-    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    #[cfg(not(target_arch = "wasm32"))]
     fn handle_export_requests(&mut self) {
         // ── Phase 3: poll running background thread ─────────────────────
         if let Some(ref handle) = self.export_thread {
@@ -1547,17 +1547,40 @@ impl App {
     }
 
     /// Phase 1: dispatches GPU compute and initiates async buffer map
-    /// (non-blocking — the file dialog is the only synchronous part).
-    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    /// (non-blocking — the file dialog is the only synchronous part on desktop).
+    #[cfg(not(target_arch = "wasm32"))]
     fn start_export(&mut self) {
-        // Open file dialog (synchronous, but user-driven)
         let fmt = self.ui_state.export_config.export_format;
-        let path = rfd::FileDialog::new()
-            .set_file_name(fmt.default_filename())
-            .add_filter(fmt.filter_label(), &[fmt.extension()])
-            .save_file();
-        let Some(path) = path else {
-            return; // User cancelled
+        let _fractal_name = self.ui_state.fractal_params.fractal_type.name();
+
+        // Obtain the destination path: file dialog on desktop, temp file on Android.
+        let path = {
+            #[cfg(not(target_os = "android"))]
+            {
+                // Open file dialog (synchronous, but user-driven)
+                let path = rfd::FileDialog::new()
+                    .set_file_name(fmt.default_filename(_fractal_name))
+                    .add_filter(fmt.filter_label(), &[fmt.extension()])
+                    .save_file();
+                let Some(p) = path else {
+                    return; // User cancelled
+                };
+                p
+            }
+            #[cfg(target_os = "android")]
+            {
+                // Export to a temp file first; android_export copies it to Downloads afterwards.
+                let dir = match self.data_dir.as_deref() {
+                    Some(d) => d,
+                    None => {
+                        self.ui_state.export_status =
+                            Some("Export failed: no data directory".to_string());
+                        self.ui_state.export_in_progress = false;
+                        return;
+                    }
+                };
+                dir.join("temp_export").with_extension(fmt.extension())
+            }
         };
 
         // Initialize compute pipeline lazily
@@ -1616,7 +1639,10 @@ impl App {
         }
 
         self.ui_state.export_in_progress = true;
-        self.ui_state.export_status = Some("Sampling SDF volume on GPU...".to_string());
+        #[cfg(target_os = "android")]
+        { self.ui_state.export_status = Some("Exporting to Downloads...".to_string()); }
+        #[cfg(not(target_os = "android"))]
+        { self.ui_state.export_status = Some("Sampling SDF volume on GPU...".to_string()); }
 
         match compute.dispatch_single_or_err(
             &self.render_ctx.device,
@@ -1675,7 +1701,7 @@ impl App {
     }
 
     /// Phase 3: spawns a background thread for mesh extraction + glTF export.
-    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    #[cfg(not(target_arch = "wasm32"))]
     fn spawn_export_thread(&mut self, grid: Vec<[f32; 2]>, pending: PendingGpuReadback) {
         let PendingGpuReadback {
             path,
@@ -1690,6 +1716,7 @@ impl App {
         let method = config.method;
         let resolution = config.resolution;
         let compute_normals = config.compute_normals;
+        let _fractal_type_name = self.ui_state.fractal_params.fractal_type.name().to_string();
 
         let progress = self.export_progress.clone();
 
@@ -1841,6 +1868,25 @@ impl App {
                 *p = 1.0;
             }
 
+            // On Android: copy the temp file to Downloads via MediaStore, then remove the temp.
+            #[cfg(target_os = "android")]
+            {
+                let display_name = config.export_format.default_filename(&_fractal_type_name);
+                let mime = config.export_format.mime_type();
+                return match crate::android_export::export_to_downloads(&path, &display_name, mime) {
+                    Ok(public_path) => {
+                        let _ = std::fs::remove_file(&path);
+                        Ok(std::path::PathBuf::from(public_path))
+                    }
+                    Err(e) => {
+                        log::warn!("MediaStore insert failed: {e}; file kept at {}", path.display());
+                        // Fallback: return the internal storage path so the status message is useful
+                        Ok(path)
+                    }
+                };
+            }
+
+            #[cfg(not(target_os = "android"))]
             Ok(path)
         }));
     }

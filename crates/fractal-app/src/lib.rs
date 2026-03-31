@@ -3,6 +3,8 @@
 //! Shared code between native binary, WASM, and Android targets.
 
 pub mod app;
+#[cfg(target_os = "android")]
+pub mod android_export;
 pub mod config_manager;
 #[cfg(feature = "hot-reload")]
 pub mod hot_reload;
