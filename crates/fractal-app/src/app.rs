@@ -7,7 +7,11 @@ use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
-use fractal_core::{Camera, SavedSession};
+use fractal_core::benchmark_types::{
+    BenchmarkScenario, TimingMethod, compute_stats,
+};
+use fractal_core::{Camera, FractalParams, SavedSession};
+use fractal_core::sdf::{ColorConfig, LightingConfig, RayMarchConfig};
 use fractal_renderer::{FractalPipeline, RenderContext, ThumbnailCapture};
 use fractal_ui::{FractalPanel, UiState};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, Touch, TouchPhase, WindowEvent};
@@ -36,6 +40,31 @@ struct PendingGpuReadback {
     effective_iso_level: f32,
     color_config: fractal_core::sdf::ColorConfig,
     lighting_config: fractal_core::sdf::LightingConfig,
+}
+
+/// In-app benchmark orchestration state.
+struct InAppBenchmarkState {
+    /// Scenarios to run
+    scenarios: Vec<BenchmarkScenario>,
+    /// Index of the current scenario
+    current_scenario: usize,
+    /// Frames rendered for the current scenario
+    frames_done: u32,
+    /// Frames to render per scenario
+    frames_per_scenario: u32,
+    /// Warm-up frames remaining for the current scenario
+    warmup_remaining: u32,
+    /// Warm-up frames per scenario
+    warmup_per_scenario: u32,
+    /// Collected frame times for the current scenario (ms)
+    current_times: Vec<f64>,
+    /// Saved user state to restore after benchmark
+    saved_fractal_params: FractalParams,
+    saved_camera: Camera,
+    saved_ray_march: RayMarchConfig,
+    saved_color: ColorConfig,
+    saved_lighting: LightingConfig,
+    saved_vsync: bool,
 }
 
 /// Splash screen state, present during the first few frames of rendering.
@@ -93,6 +122,8 @@ pub struct App {
     /// Pending GPU readback for non-blocking export (path + receiver + export params)
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
     pending_gpu_readback: Option<PendingGpuReadback>,
+    /// In-app benchmark orchestration state
+    benchmark_state: Option<InAppBenchmarkState>,
 }
 
 impl App {
@@ -321,6 +352,7 @@ impl App {
             export_progress: std::sync::Arc::new(std::sync::Mutex::new(0.0)),
             #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
             pending_gpu_readback: None,
+            benchmark_state: None,
         })
     }
     
@@ -975,9 +1007,12 @@ impl App {
         // Only process app logic after splash is dismissed
         if self.splash.is_none() {
             self.camera = self.ui_state.camera.clone();
-            self.handle_session_requests();
-            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
-            self.handle_export_requests();
+            self.handle_benchmark_requests();
+            if !self.ui_state.benchmark_running {
+                self.handle_session_requests();
+                #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+                self.handle_export_requests();
+            }
             self.save_settings_if_dirty();
 
             // Handle "open config file" request from UI
@@ -1231,6 +1266,176 @@ impl App {
                 }
             }
         }
+    }
+
+    fn handle_benchmark_requests(&mut self) {
+        // Start a new benchmark run if requested
+        if self.ui_state.pending_benchmark && self.benchmark_state.is_none() {
+            self.ui_state.pending_benchmark = false;
+            self.ui_state.benchmark_running = true;
+            self.ui_state.benchmark_results.clear();
+            self.ui_state.benchmark_frame_times.clear();
+            self.ui_state.benchmark_progress = 0.0;
+
+            // Use a quick matrix: 1 fractal type (current) × 1 resolution (512×512)
+            // × 4 color modes × 2 lighting models = 8 scenarios.
+            // The full 192-scenario matrix is for the CLI; in-app uses a lighter set.
+            let ft = self.ui_state.fractal_params.fractal_type;
+            let params = fractal_core::FractalParams::for_type(ft);
+            let camera = Camera::default();
+            let color_modes: &[u32] = &[1, 2, 3, 4];
+            let lighting_models: &[u32] = &[0, 1];
+
+            let mut scenarios = Vec::new();
+            for &cm in color_modes {
+                for &lm in lighting_models {
+                    let mut cc = ColorConfig::default();
+                    cc.color_mode = cm;
+                    let mut lc = LightingConfig::default();
+                    lc.lighting_model = lm;
+                    let cm_name = match cm {
+                        1 => "orbit-trap", 2 => "iteration", 3 => "normal", _ => "combined",
+                    };
+                    let lm_name = if lm == 0 { "Blinn-Phong" } else { "PBR" };
+                    scenarios.push(BenchmarkScenario {
+                        name: format!("{} @ 512x512 / {} / {}", ft.name(), cm_name, lm_name),
+                        fractal_params: params,
+                        camera: camera.clone(),
+                        width: 512,
+                        height: 512,
+                        ray_march_config: RayMarchConfig::default(),
+                        color_config: cc,
+                        lighting_config: lc,
+                    });
+                }
+            }
+
+            // Save user state
+            let saved = InAppBenchmarkState {
+                scenarios,
+                current_scenario: 0,
+                frames_done: 0,
+                frames_per_scenario: 30,
+                warmup_remaining: 5,
+                warmup_per_scenario: 5,
+                current_times: Vec::new(),
+                saved_fractal_params: self.ui_state.fractal_params,
+                saved_camera: self.camera.clone(),
+                saved_ray_march: self.ui_state.ray_march_config,
+                saved_color: self.ui_state.color_config,
+                saved_lighting: self.ui_state.lighting_config,
+                saved_vsync: self.ui_state.vsync,
+            };
+
+            // Disable VSync for accurate timing
+            if self.ui_state.vsync {
+                self.ui_state.vsync = false;
+                self.vsync_prev = false;
+                self.render_ctx.set_present_mode(wgpu::PresentMode::AutoNoVsync);
+            }
+
+            self.benchmark_state = Some(saved);
+            self.apply_benchmark_scenario();
+            return;
+        }
+
+        // Stop if requested
+        if self.ui_state.benchmark_stop_requested {
+            self.ui_state.benchmark_stop_requested = false;
+            self.finish_benchmark();
+            return;
+        }
+
+        // Advance running benchmark
+        if let Some(ref mut bench) = self.benchmark_state {
+            if bench.current_scenario >= bench.scenarios.len() {
+                // All done
+                self.finish_benchmark();
+                return;
+            }
+
+            if bench.warmup_remaining > 0 {
+                // Still warming up — just count the frame
+                bench.warmup_remaining -= 1;
+                return;
+            }
+
+            // Record frame time (the time between last_frame and now covers
+            // the submit+present of the previous frame, which includes GPU work)
+            let frame_time_ms = self.last_frame.elapsed().as_secs_f64() * 1000.0;
+            bench.current_times.push(frame_time_ms);
+            bench.frames_done += 1;
+
+            // Update live graph
+            self.ui_state.benchmark_frame_times.push(frame_time_ms);
+            // Keep last 200 entries
+            if self.ui_state.benchmark_frame_times.len() > 200 {
+                self.ui_state.benchmark_frame_times.remove(0);
+            }
+
+            if bench.frames_done >= bench.frames_per_scenario {
+                // Finish this scenario
+                let scenario_name = bench.scenarios[bench.current_scenario].name.clone();
+                let mut times = std::mem::take(&mut bench.current_times);
+                let result = compute_stats(&scenario_name, TimingMethod::CpuPollWait, &mut times);
+                self.ui_state.benchmark_results.push(result);
+
+                // Move to next scenario
+                bench.current_scenario += 1;
+                bench.frames_done = 0;
+                bench.warmup_remaining = bench.warmup_per_scenario;
+
+                let total = bench.scenarios.len();
+                let done = bench.current_scenario;
+                self.ui_state.benchmark_progress = done as f32 / total as f32;
+
+                if done < total {
+                    self.apply_benchmark_scenario();
+                }
+            }
+        }
+    }
+
+    fn apply_benchmark_scenario(&mut self) {
+        if let Some(ref bench) = self.benchmark_state {
+            if bench.current_scenario < bench.scenarios.len() {
+                let s = &bench.scenarios[bench.current_scenario];
+                self.ui_state.fractal_params = s.fractal_params;
+                self.ui_state.ray_march_config = s.ray_march_config;
+                self.ui_state.color_config = s.color_config;
+                self.ui_state.lighting_config = s.lighting_config;
+                self.camera = s.camera.clone();
+                self.ui_state.camera = s.camera.clone();
+                self.ui_state.benchmark_current_scenario = s.name.clone();
+            }
+        }
+    }
+
+    fn finish_benchmark(&mut self) {
+        if let Some(bench) = self.benchmark_state.take() {
+            // Restore user state
+            self.ui_state.fractal_params = bench.saved_fractal_params;
+            self.camera = bench.saved_camera.clone();
+            self.ui_state.camera = bench.saved_camera;
+            self.ui_state.ray_march_config = bench.saved_ray_march;
+            self.ui_state.color_config = bench.saved_color;
+            self.ui_state.lighting_config = bench.saved_lighting;
+
+            // Restore VSync
+            if bench.saved_vsync != self.ui_state.vsync {
+                self.ui_state.vsync = bench.saved_vsync;
+                self.vsync_prev = bench.saved_vsync;
+                let mode = if bench.saved_vsync {
+                    wgpu::PresentMode::AutoVsync
+                } else {
+                    wgpu::PresentMode::AutoNoVsync
+                };
+                self.render_ctx.set_present_mode(mode);
+            }
+        }
+        self.ui_state.benchmark_running = false;
+        self.ui_state.benchmark_progress = 1.0;
+        self.ui_state.benchmark_current_scenario = String::from("Done");
     }
 
     fn handle_session_requests(&mut self) {

@@ -1,6 +1,7 @@
 //! UI state management
 
 use fractal_core::{Camera, FractalParams, FractalType};
+use fractal_core::benchmark_types::BenchmarkResult;
 use fractal_core::mesh::ExportConfig;
 use fractal_core::sdf::{ColorConfig, LightingConfig, RayMarchConfig};
 
@@ -95,6 +96,24 @@ pub struct UiState {
     /// Log filter: show ERROR level
     pub log_show_error: bool,
 
+    // -- Benchmark state (transient, not saved) --
+    /// Whether a benchmark is currently running
+    pub benchmark_running: bool,
+    /// Completed benchmark results
+    pub benchmark_results: Vec<BenchmarkResult>,
+    /// Rolling buffer of frame times for live graph (ms)
+    pub benchmark_frame_times: Vec<f64>,
+    /// Name of the currently running scenario
+    pub benchmark_current_scenario: String,
+    /// Overall progress (0.0 to 1.0)
+    pub benchmark_progress: f32,
+    /// Show the benchmark panel
+    pub show_benchmark: bool,
+    /// Signal to app to start a benchmark run
+    pub pending_benchmark: bool,
+    /// Signal to app to stop a benchmark run
+    pub benchmark_stop_requested: bool,
+
     // -- Export state (transient, not saved) --
     /// Export configuration (resolution, bounds, etc.)
     pub export_config: ExportConfig,
@@ -139,6 +158,14 @@ impl Default for UiState {
             log_show_warn: true,
             log_show_error: true,
             light_control_active: false,
+            benchmark_running: false,
+            benchmark_results: Vec::new(),
+            benchmark_frame_times: Vec::new(),
+            benchmark_current_scenario: String::new(),
+            benchmark_progress: 0.0,
+            show_benchmark: false,
+            pending_benchmark: false,
+            benchmark_stop_requested: false,
             export_config: ExportConfig::default(),
             pending_export: false,
             export_progress: None,

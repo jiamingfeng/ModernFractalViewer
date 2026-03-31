@@ -3,6 +3,7 @@
 //! This crate contains the core mathematical types and fractal definitions
 //! used by the fractal viewer application.
 
+pub mod benchmark_types;
 pub mod camera;
 pub mod fractals;
 pub mod mesh;
