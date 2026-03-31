@@ -40,6 +40,8 @@ struct PendingGpuReadback {
     effective_iso_level: f32,
     color_config: fractal_core::sdf::ColorConfig,
     lighting_config: fractal_core::sdf::LightingConfig,
+    /// Android MediaStore display name. Empty on non-Android targets.
+    display_name: String,
 }
 
 /// In-app benchmark orchestration state.
@@ -1583,6 +1585,19 @@ impl App {
             }
         };
 
+        // Capture display name for Android MediaStore call.
+        #[cfg(target_os = "android")]
+        let android_display_name = {
+            let custom = self.ui_state.export_filename.trim().to_string();
+            if custom.is_empty() {
+                fmt.default_filename(self.ui_state.fractal_params.fractal_type.name())
+            } else {
+                custom
+            }
+        };
+        #[cfg(not(target_os = "android"))]
+        let android_display_name = String::new();
+
         // Initialize compute pipeline lazily
         if self.sdf_compute.is_none() {
             self.sdf_compute = Some(fractal_renderer::compute::SdfVolumeCompute::new(
@@ -1664,6 +1679,7 @@ impl App {
                     effective_iso_level: effective_iso,
                     color_config: self.ui_state.color_config.clone(),
                     lighting_config: self.ui_state.lighting_config.clone(),
+                    display_name: android_display_name.clone(),
                 });
             }
             Err(_slab_info) => {
@@ -1694,6 +1710,7 @@ impl App {
                     effective_iso_level: effective_iso,
                     color_config: self.ui_state.color_config.clone(),
                     lighting_config: self.ui_state.lighting_config.clone(),
+                    display_name: android_display_name,
                 };
                 self.spawn_export_thread(grid, pending);
             }
@@ -1711,8 +1728,11 @@ impl App {
             effective_iso_level: iso_level,
             color_config,
             lighting_config,
+            display_name: _display_name,
             ..
         } = pending;
+        #[cfg(target_os = "android")]
+        let display_name = _display_name;
         let method = config.method;
         let resolution = config.resolution;
         let compute_normals = config.compute_normals;
@@ -1871,7 +1891,6 @@ impl App {
             // On Android: copy the temp file to Downloads via MediaStore, then remove the temp.
             #[cfg(target_os = "android")]
             {
-                let display_name = config.export_format.default_filename(&_fractal_type_name);
                 let mime = config.export_format.mime_type();
                 return match crate::android_export::export_to_downloads(&path, &display_name, mime) {
                     Ok(public_path) => {
@@ -1879,9 +1898,8 @@ impl App {
                         Ok(std::path::PathBuf::from(public_path))
                     }
                     Err(e) => {
-                        log::warn!("MediaStore insert failed: {e}; file kept at {}", path.display());
-                        // Fallback: return the internal storage path so the status message is useful
-                        Ok(path)
+                        let _ = std::fs::remove_file(&path);
+                        Err(format!("Export to Downloads failed: {e}"))
                     }
                 };
             }

@@ -294,6 +294,49 @@ impl ExportPanel {
                         });
                 });
 
+                // Android-only: custom filename input
+                if cfg!(target_os = "android") {
+                    // Lazy-init: if empty, populate with auto-generated name
+                    if state.export_filename.is_empty() {
+                        let fractal_name = state.fractal_params.fractal_type.name();
+                        state.export_filename =
+                            state.export_config.export_format.default_filename(fractal_name);
+                    }
+
+                    // Keep extension in sync when format changes
+                    let new_ext = state.export_config.export_format.extension();
+                    let wrong_ext = !state.export_filename
+                        .rsplit('.')
+                        .next()
+                        .map(|e| e.eq_ignore_ascii_case(new_ext))
+                        .unwrap_or(false);
+                    if wrong_ext {
+                        let stem = state.export_filename
+                            .rsplit_once('.')
+                            .map(|(s, _)| s)
+                            .unwrap_or(&state.export_filename)
+                            .to_string();
+                        state.export_filename = format!("{stem}.{new_ext}");
+                    }
+
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label("Filename:");
+                        let resp = ui.text_edit_singleline(&mut state.export_filename);
+                        if resp.lost_focus() {
+                            state.export_filename = sanitise_export_filename(
+                                &state.export_filename,
+                                state.export_config.export_format.extension(),
+                            );
+                            if state.export_filename.is_empty() {
+                                let fractal_name = state.fractal_params.fractal_type.name();
+                                state.export_filename =
+                                    state.export_config.export_format.default_filename(fractal_name);
+                            }
+                        }
+                    });
+                }
+
                 ui.add_space(6.0);
 
                 // Export button
@@ -319,5 +362,19 @@ impl ExportPanel {
                     ui.small(status);
                 }
             });
+    }
+}
+
+/// Strip path separators from a candidate filename and enforce the required extension.
+fn sanitise_export_filename(raw: &str, ext: &str) -> String {
+    let clean: String = raw.chars().filter(|&c| c != '/' && c != '\\').collect();
+    let clean = clean.trim().to_string();
+    if clean.is_empty() {
+        return String::new();
+    }
+    match clean.rsplit_once('.') {
+        Some((_stem, e)) if e.eq_ignore_ascii_case(ext) => clean,
+        Some((stem, _)) => format!("{stem}.{ext}"),
+        None => format!("{clean}.{ext}"),
     }
 }

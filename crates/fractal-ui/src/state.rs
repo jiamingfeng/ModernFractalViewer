@@ -125,6 +125,8 @@ pub struct UiState {
     pub export_status: Option<String>,
     /// Whether an export is currently in progress
     pub export_in_progress: bool,
+    /// Custom filename for Android export (base name + extension, no path). Transient.
+    pub export_filename: String,
 }
 
 impl Default for UiState {
@@ -171,6 +173,7 @@ impl Default for UiState {
             export_progress: None,
             export_status: None,
             export_in_progress: false,
+            export_filename: String::new(),
         }
     }
 }
